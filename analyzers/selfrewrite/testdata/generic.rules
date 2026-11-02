@@ -1,0 +1,12 @@
+(Neg64 (Neg64 <t> x)) => (Neg64 (Neg64 <t> x)) // want "identical"
+(Neg32 y:(Neg32 <t> x)) => (Neg32 z:(Neg32 <t> x)) // want "identical"
+(Sqrt x) => (Sqrt x) // want "identical"
+
+// Not reported: conditional, different, or produced via {code}.
+(Load <t1> ptr mem) && t1.IsInteger() => (Load <t1> ptr mem)
+(Neg16 (Neg16 x)) => x
+(Load <t> p m) => (Load <t> m p)
+(Com64 (Com64 x)) => {x}
+
+(If (Not cond) yes no) => (If (Not cond) yes no) // want "identical"
+(If (ConstBool <t> [c]) yes no) => (If (ConstBool <t> [c]) no yes)

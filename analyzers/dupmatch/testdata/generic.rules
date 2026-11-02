@@ -1,0 +1,31 @@
+// Renamed variables.
+(Neg64 (Neg64 x)) => x
+(Neg64 (Neg64 y)) => y // want "shadowed by equivalent rule at generic.rules:2"
+
+// Commuted args of a commutative op; the result doesn't matter.
+(Sub64 (Add64 x y) x) => y
+(Sub64 (Add64 x y) y) => x // want "shadowed by equivalent rule at generic.rules:6"
+
+// Equivalent conditions, after renaming.
+(Mul64 (Const64 [c]) x) && c == 1 && x.Type.IsSigned() => x
+(Mul64 (Const64 [d]) z) && d == 1 && z.Type.IsSigned() => z // want "shadowed"
+
+// A binding name used only once constrains nothing.
+(Neg32 x:(Neg32 y)) => y
+(Neg32 (Neg32 z)) => z // want "shadowed"
+
+// Different conditions, constraints, or repeated variables: not shadowed.
+(Mul64 (Const64 [c]) x) && c == 2 => (Add64 x x)
+(Sub32 x x) => (Const32 [0])
+(Sub32 (Neg32 x) y) => (Neg32 (Add32 <v.Type> x y))
+(Sub32 (Neg32 x) x) => (Neg32 (Add32 <v.Type> x x))
+(Lsh64x64 (Const64 [0]) _) => (Const64 [0])
+(Lsh64x64 (Const64 [1]) _) => (Const64 [1])
+
+// | expansions of one rule are distinct.
+(Com(64|32) (Com(64|32) x)) => x
+(Com(64|32) (Com(64|32) y)) => y // want "shadowed by equivalent rule at generic.rules:26"
+
+// Block rules.
+(If (Not cond) yes no) => (If cond no yes)
+(If (Not c) a b) => (If c b a) // want "shadowed"
