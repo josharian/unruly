@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/josharian/unruly/rules"
 )
@@ -199,9 +200,15 @@ func (g *generator) expr(text string, node any, f Field) {
 
 // ident writes text, recording its span under key.
 func (g *generator) ident(text string, node any, f Field) {
+	// The span must match the parsed expression exactly, which excludes
+	// surrounding space, as in the [1<<8 ] of (ORLconst [1<<8 ] x).
+	trimmed := strings.TrimLeftFunc(text, unicode.IsSpace)
+	g.buf.WriteString(text[:len(text)-len(trimmed)])
+	text = strings.TrimRightFunc(trimmed, unicode.IsSpace)
 	start := g.buf.Len()
 	g.buf.WriteString(text)
 	g.spans = append(g.spans, span{start, g.buf.Len(), g.cur, exprKey{node, f}})
+	g.buf.WriteString(trimmed[len(text):])
 }
 
 func (g *generator) errorf(format string, args ...any) {

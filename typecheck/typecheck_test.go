@@ -30,8 +30,12 @@ func checkAll(t *testing.T, path string) {
 		}
 		for _, r := range set.Rules {
 			n++
-			for _, err := range res.Rule(r).Errors {
+			tr := res.Rule(r)
+			for _, err := range tr.Errors {
 				t.Errorf("%s: %s: %v", r.Pos, r.Text, err)
+			}
+			for _, m := range missingExprs(r, tr) {
+				t.Errorf("%s: %s: no typed expression for %s", r.Pos, r.Text, m)
 			}
 		}
 	}
@@ -68,4 +72,47 @@ func TestHistorical(t *testing.T) {
 			checkAll(t, dir)
 		})
 	}
+}
+
+// missingExprs lists the expressions of r that tr lacks.
+func missingExprs(r *rules.Rule, tr *typecheck.Rule) []string {
+	var missing []string
+	need := func(ok bool, what string) {
+		if !ok {
+			missing = append(missing, what)
+		}
+	}
+	need(r.Cond == "" || tr.Cond != nil, "cond")
+	need(r.ResultCode == "" || tr.Code != nil, "code")
+	need(r.Placement == "" || tr.Placement != nil, "placement")
+	field := func(node any, f typecheck.Field, text string) {
+		if text != "" && text != "_" {
+			need(tr.Expr(node, f) != nil, text)
+		}
+	}
+	var walk func(v *rules.Value, match bool)
+	walk = func(v *rules.Value, match bool) {
+		if v.Name != "" && (match || v.IsLeaf() || v != r.Result || r.Placement != "") {
+			field(v, typecheck.Name, v.Name)
+		}
+		field(v, typecheck.Type, v.Type)
+		field(v, typecheck.AuxInt, v.AuxInt)
+		field(v, typecheck.Aux, v.Aux)
+		for _, a := range v.Args {
+			walk(a, match)
+		}
+	}
+	if r.IsBlock() {
+		field(r.MatchBlock, typecheck.AuxInt, r.MatchBlock.AuxInt)
+		field(r.MatchBlock, typecheck.Aux, r.MatchBlock.Aux)
+		field(r.ResultBlock, typecheck.AuxInt, r.ResultBlock.AuxInt)
+		field(r.ResultBlock, typecheck.Aux, r.ResultBlock.Aux)
+	}
+	for _, v := range r.MatchValues() {
+		walk(v, true)
+	}
+	for _, v := range r.ResultValues() {
+		walk(v, false)
+	}
+	return missing
 }
