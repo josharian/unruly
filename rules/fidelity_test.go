@@ -66,7 +66,7 @@ func TestFidelityHistorical(t *testing.T) {
 				}
 				rev = strings.TrimSpace(string(out))
 			}
-			dir, err := gitrev.Extract(repo, rev, "src/cmd/compile/internal/ssa")
+			dir, err := genDirParent(gitrev.GenDir(repo, rev))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -267,4 +267,8 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	slices.Sort(keys)
 	return keys
+}
+
+func genDirParent(dir string, err error) (string, error) {
+	return filepath.Dir(dir), err
 }

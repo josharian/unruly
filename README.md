@@ -19,10 +19,12 @@ findings and 2 if there are errors (including rules that fail to parse).
 | Package | Contents |
 | --- | --- |
 | `ops` | Op and block tables, loaded from a _gen directory |
+| `opsig` | Operand kinds, widths, and signedness of generic ops |
 | `rules` | Rules parser, AST, and helpers for rulegen's semantics |
+| `typecheck` | Go types for the Go expressions in rules |
 | `analysis` | `Analyzer`, `Pass`, `Run` |
 | `analysis/analysistest` | Test harness |
-| `analyzers` | The registry, `analyzers.All` |
+| `analyzers` | The registry, `analyzers.All()` |
 | `analyzers/<name>` | One analyzer each |
 | `cmd/unruly` | The driver |
 
@@ -32,7 +34,14 @@ findings and 2 if there are errors (including rules that fail to parse).
    `var Analyzer = &analysis.Analyzer{Name: "<name>", Doc: "...", Run: run}`.
    `Run` receives a `*analysis.Pass` and reports with
    `pass.Reportf(rule.Pos, ...)`.
-2. Add `<name>.Analyzer` to `analyzers.All` in `analyzers/analyzers.go`.
+2. Register it in a new file, `analyzers/<name>.go`:
+   ```go
+   package analyzers
+
+   import "github.com/josharian/unruly/analyzers/<name>"
+
+   func init() { register(<name>.Analyzer) }
+   ```
 3. Add `analyzers/<name>/testdata/*.rules` and a test (see below).
 
 See `analyzers/dupmatch` and `analyzers/selfrewrite` for examples.
@@ -115,6 +124,7 @@ something other than they appear to. Helpers in `rules` encode these:
 - Within a block rule, `<type>` is ignored, and successors may only be kept
   or swapped. Variables `v`, `b`, `config`, `typ`, and `fe` are predefined
   in conditions and results (`Tables.ReservedNames`).
+- `_` in a match's `<>`, `[]`, or `{}` is a wildcard, like a leaf `_`.
 - `Rule.Unconditional` reports whether a rule applies to every value of its
   op. rulegen rejects rules after an unconditional one.
 
@@ -139,6 +149,44 @@ Fields not modeled are in `Op.Raw`/`Arch.Raw`. Register classes overlap
 (on AMD64 and ARM64 the FP and SIMD masks coincide); memory and flags
 arguments have empty masks.
 
+## Typed expressions
+
+`typecheck.Check(set)` type-checks the Go expressions in a rule set's rules
+against the real declarations in the Go tree (helpers in rewrite.go,
+`config` fields, `math/bits`, ...), as rulegen's generated code would use
+them. It declares each match variable as that generated code does: a value
+variable is a `*ssa.Value`, `<t>` a `*types.Type`, `[c]` on `MOVLload` an
+`int32` (via `auxIntToInt32`), `{sym}` an `ssa.Sym`. Results are cached per
+rule set; the first check of a tree takes about a second.
+
+```go
+res, err := typecheck.Check(rule.Set)
+tr := res.Rule(rule)
+tr.Vars["c"].Type()                                        // int64
+res.Info.TypeOf(tr.Cond)                                   // bool
+res.Info.TypeOf(tr.Expr(rule.Result, typecheck.AuxInt))    // int32: the result's [int32(c)]
+res.Info.Types[tr.Expr(v, typecheck.AuxInt)].Value         // constant value, if any
+tr.Errors                                                  // e.g. "constant 300 overflows int8"
+```
+
+In the context rulegen gives it, an untyped constant has its converted type
+(`[-1]` on a `Const8` result is an `int8`). Expressions come from
+generated source, so their positions are not in the rules file. Checking
+needs the tree's source and its rulegen output; it works on `go env
+GOROOT`-style trees and on revisions extracted by the test harness.
+
+## Generic op signatures
+
+`opsig.Lookup(op)` describes a generic op's arguments and result: kind (Int,
+Float, Bool, Ptr, Mem, Tuple, ...), width in bits when the op fixes it, and
+signedness when the op implies it. `Rsh32Ux64` takes an unsigned 32-bit value
+and an unsigned 64-bit count; `Load`'s result is `Any`, with its width from
+the value's type. Ops generated for SIMD are marked `SIMD` and not described.
+The table is checked against every generic op of the current tree, so new
+ops fail its test until classified. Rules routinely compute narrower-typed
+values with wider ops (`(Div16 x y) => (Div32 (SignExt16to32 x) ...)`), so
+compare widths with that in mind.
+
 ## Testing
 
 ```go
@@ -159,6 +207,16 @@ unconditional one, ...). Mark expected diagnostics on the rule's first line:
 
 `analysistest.RunFiles` takes fixtures inline instead.
 
+To see an analyzer's findings on the real rules without building
+`cmd/unruly` (which breaks while any registered analyzer is mid-edit):
+
+```go
+func TestSurvey(t *testing.T) { analysistest.Survey(t, myanalyzer.Analyzer) }
+```
+
+and run `go test -v -run Survey ./analyzers/myanalyzer`.
+`analysistest.SurveyRevision` does the same for a historical revision.
+
 `analysistest.RunRevision` checks a historical revision, using that
 revision's own op tables:
 
@@ -173,8 +231,9 @@ analysistest.RunRevision(t, "79a3482d9e", dupmatch.Analyzer,
 
 Tests use the Go tree `$UNRULY_GOROOT`, else `~/go/tip`, else
 `go env GOROOT`, and the git repository `$UNRULY_GOREPO`, else `~/go/tip`;
-they skip if these are missing. Revisions are extracted with `git archive`
-into the user cache directory; the repository is only read.
+they skip if these are missing. A revision's `src` (about 120 MB, without
+testdata) is extracted with `git archive` into the user cache directory; the
+repository is only read.
 
 ## Limitations
 

@@ -155,6 +155,55 @@ func parseWant(line string) ([]*regexp.Regexp, error) {
 	return res, nil
 }
 
+// Survey applies a to the rules of the Go tree that tests use (see Tables)
+// and logs each diagnostic, for exploring an analyzer's findings on real
+// rules during development without building cmd/unruly:
+//
+//	func TestSurvey(t *testing.T) { analysistest.Survey(t, myanalyzer.Analyzer) }
+//
+//	go test -v -run Survey ./analyzers/myanalyzer
+//
+// Set UNRULY_GOROOT to survey a different tree. Parse errors fail the test.
+func Survey(t *testing.T, a *analysis.Analyzer) []analysis.Diagnostic {
+	t.Helper()
+	c, err := rules.Load(testenv.GenDir(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return survey(t, c, a)
+}
+
+// SurveyRevision is like Survey, for a revision of the Go repository
+// (see RunRevision).
+func SurveyRevision(t *testing.T, rev string, a *analysis.Analyzer) []analysis.Diagnostic {
+	t.Helper()
+	dir, err := gitrev.GenDir(testenv.GoRepo(t), rev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := rules.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return survey(t, c, a)
+}
+
+func survey(t *testing.T, c *rules.Corpus, a *analysis.Analyzer) []analysis.Diagnostic {
+	t.Helper()
+	for _, err := range c.Errors {
+		t.Errorf("parse error: %v", err)
+	}
+	diags, err := analysis.Run(c, c.Sets, []*analysis.Analyzer{a})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range diags {
+		t.Log(d)
+	}
+	t.Logf("%d diagnostics", len(diags))
+	return diags
+}
+
 // Want is an expectation about a diagnostic in a historical revision.
 type Want struct {
 	// File is the base name of the rules file, such as "AMD64.rules".

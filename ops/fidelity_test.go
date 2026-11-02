@@ -31,7 +31,7 @@ func TestFidelityHistorical(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			dir, err := gitrev.Extract(repo, strings.TrimSpace(string(out)), "src/cmd/compile/internal/ssa")
+			dir, err := genDirParent(gitrev.GenDir(repo, strings.TrimSpace(string(out))))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -241,4 +241,8 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func genDirParent(dir string, err error) (string, error) {
+	return filepath.Dir(dir), err
 }

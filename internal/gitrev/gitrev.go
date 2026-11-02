@@ -14,32 +14,26 @@ import (
 	"strings"
 )
 
-// GenDir extracts the SSA rules directory (src/cmd/compile/internal/ssa/_gen,
-// or .../gen in older trees) at revision rev of the Go repository repo,
-// and returns its location.
+// GenDir extracts the source tree (src, without testdata) at revision rev
+// of the Go repository repo, and returns the location of its SSA rules
+// directory (src/cmd/compile/internal/ssa/_gen, or .../gen in older trees).
+// Extracted trees are cached by commit hash in the user cache directory.
 func GenDir(repo, rev string) (string, error) {
 	hash, err := resolve(repo, rev)
 	if err != nil {
 		return "", err
 	}
-	for _, sub := range []string{"_gen", "gen"} {
-		p := "src/cmd/compile/internal/ssa/" + sub
-		if exists(repo, hash, p) {
-			return extract(repo, hash, p)
-		}
-	}
-	return "", fmt.Errorf("%s at %s has no SSA rules directory", repo, rev)
-}
-
-// Extract extracts directory dir (relative to the repository root) at
-// revision rev of repo, and returns its location. Extracted trees are cached
-// by commit hash in the user cache directory.
-func Extract(repo, rev, dir string) (string, error) {
-	hash, err := resolve(repo, rev)
+	src, err := extract(repo, hash, "src", ":(exclude)src/**/testdata/**")
 	if err != nil {
 		return "", err
 	}
-	return extract(repo, hash, dir)
+	for _, sub := range []string{"_gen", "gen"} {
+		p := filepath.Join(src, "cmd", "compile", "internal", "ssa", sub)
+		if _, err := os.Stat(filepath.Join(p, "genericOps.go")); err == nil {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("%s at %s has no SSA rules directory", repo, rev)
 }
 
 func resolve(repo, rev string) (string, error) {
@@ -50,12 +44,7 @@ func resolve(repo, rev string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func exists(repo, hash, dir string) bool {
-	out, err := exec.Command("git", "-C", repo, "ls-tree", "-d", "--name-only", hash, dir).Output()
-	return err == nil && strings.TrimSpace(string(out)) == dir
-}
-
-func extract(repo, hash, dir string) (string, error) {
+func extract(repo, hash, dir string, pathspecs ...string) (string, error) {
 	cache, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
@@ -74,7 +63,8 @@ func extract(repo, hash, dir string) (string, error) {
 	}
 	defer os.RemoveAll(tmp)
 
-	cmd := exec.Command("git", "-C", repo, "archive", "--format=tar", hash, dir)
+	args := append([]string{"-C", repo, "archive", "--format=tar", hash, dir}, pathspecs...)
+	cmd := exec.Command("git", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", err

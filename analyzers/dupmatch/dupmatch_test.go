@@ -18,3 +18,7 @@ func TestHistorical(t *testing.T) {
 		analysistest.Want{File: "generic.rules", Rule: "(Sub(64|32|16|8) (Add(64|32|16|8) x y) y) => x", Message: "shadowed"},
 	)
 }
+
+func TestSurvey(t *testing.T) {
+	analysistest.Survey(t, dupmatch.Analyzer)
+}

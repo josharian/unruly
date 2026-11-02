@@ -20,7 +20,7 @@ import (
 
 // dumpVersion is part of the cache key. Bump it whenever the dump program
 // or the JSON it produces changes.
-const dumpVersion = "unruly-opdump-2"
+const dumpVersion = "unruly-opdump-3"
 
 // dump builds the _gen package in dir together with a generated main
 // function that dumps the registered op tables as JSON.
@@ -238,6 +238,7 @@ type dumpConfig struct {
 	GenericOps    bool // var genericOps []opData
 	GenericBlocks bool // var genericBlocks []blockData
 	ReservedNames bool // var reservedNames map[string]bool
+	AdditionalOps bool // var additionalGenericOps map[string][]opData
 	OpAuxType     bool // func (opData) auxType() string
 	OpAuxIntType  bool // func (opData) auxIntType() string
 	OpHasAux      bool // func opHasAux(opData) bool
@@ -285,6 +286,7 @@ func dumpMain(pkg *types.Package) ([]byte, error) {
 		GenericOps:    isVar("genericOps"),
 		GenericBlocks: isVar("genericBlocks"),
 		ReservedNames: isVar("reservedNames"),
+		AdditionalOps: isVar("additionalGenericOps"),
 		OpAuxType:     hasMethod(opData, "auxType", "string"),
 		OpAuxIntType:  hasMethod(opData, "auxIntType", "string"),
 		OpHasAux:      hasFunc("opHasAux", 1, "bool"),
@@ -336,6 +338,15 @@ func main() {
 	{{- end}}
 	{{- if .ReservedNames}}
 	out["reservedNames"] = unrulyDump(unrulyreflect.ValueOf(reservedNames))
+	{{- end}}
+	{{- if .AdditionalOps}}
+	var simdOps []string
+	for _, l := range additionalGenericOps {
+		for _, op := range l {
+			simdOps = append(simdOps, op.name)
+		}
+	}
+	out["simdGenericOps"] = simdOps
 	{{- end}}
 	{{- if .ArchOpsField}}
 	var opExtra [][]map[string]any

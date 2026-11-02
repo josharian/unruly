@@ -10,3 +10,7 @@ import (
 func Test(t *testing.T) {
 	analysistest.Run(t, "testdata", selfrewrite.Analyzer)
 }
+
+func TestSurvey(t *testing.T) {
+	analysistest.Survey(t, selfrewrite.Analyzer)
+}

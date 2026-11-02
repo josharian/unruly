@@ -29,7 +29,9 @@ type Occurrence struct {
 // IsVarText reports whether s, the text of a leaf or of a <type>, [auxint],
 // or {aux} in a match, is a variable rather than a Go expression to compare
 // against. For example, x and c are variables; 0, nil, and typ.UInt64 are not.
-// The wildcard _ is not a variable.
+// The wildcard _ is not a variable. (In a match's <>, [], or {}, rulegen
+// turns _ into a declaration that it then deletes as unused, so it too
+// matches anything.)
 func IsVarText(s string) bool {
 	return token.IsIdentifier(s) && s != "_" && !predeclared[s]
 }

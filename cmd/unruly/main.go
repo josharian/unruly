@@ -114,14 +114,14 @@ func run() int {
 
 func selectAnalyzers(pattern string) ([]*analysis.Analyzer, error) {
 	if pattern == "" {
-		return analyzers.All, nil
+		return analyzers.All(), nil
 	}
 	rx, err := regexp.Compile(pattern)
 	if err != nil {
 		return nil, err
 	}
 	var sel []*analysis.Analyzer
-	for _, a := range analyzers.All {
+	for _, a := range analyzers.All() {
 		if rx.MatchString(a.Name) {
 			sel = append(sel, a)
 		}

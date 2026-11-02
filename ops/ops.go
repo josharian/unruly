@@ -244,6 +244,10 @@ type Op struct {
 
 	Reg RegInfo
 
+	// SIMD reports whether a generic op is one of the machine-generated
+	// SIMD ops (rulegen's additionalGenericOps).
+	SIMD bool
+
 	// AuxType and AuxIntType are the Go types rulegen uses for the op's
 	// Aux and AuxInt fields (e.g. "Sym", "int32", "ValAndOff").
 	// They are "invalid" if the op has no such field.

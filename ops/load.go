@@ -132,6 +132,7 @@ type dumpData struct {
 	OpExtra           [][]map[string]any
 	BlockExtra        [][]map[string]any
 	ReservedNames     map[string]bool
+	SIMDGenericOps    []string
 }
 
 func decode(data []byte) (*Tables, error) {
@@ -183,6 +184,13 @@ func decode(data []byte) (*Tables, error) {
 	t.Generic = t.byName["generic"]
 	if t.Generic == nil {
 		return nil, errors.New("no generic arch")
+	}
+	simd := make(map[string]bool)
+	for _, name := range d.SIMDGenericOps {
+		simd[name] = true
+	}
+	for _, op := range t.Generic.Ops {
+		op.SIMD = simd[op.Name]
 	}
 	slices.SortFunc(t.Archs, func(a, b *Arch) int { return strings.Compare(a.Name, b.Name) })
 	for _, a := range t.Archs {
