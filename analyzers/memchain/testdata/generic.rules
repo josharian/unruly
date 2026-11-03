@@ -1,0 +1,40 @@
+// The memory half of make([]T, 0) elimination (go.dev/issue/58161):
+// the call stays live for its pointer result. ClobberIfDead doesn't help.
+(SelectN [1] call:(StaticLECall _ (Const64 [0]) (Const64 [0]) mem)) && isSameCall(call.Aux, "runtime.makeslice") && clobberIfDead(call) => mem // want `result skips call \(StaticLECall\), using memory mem from below it, but the condition doesn't establish call.Uses == 1`
+(SelectN [1] c:(StaticLECall {f} _ _ mem)) && c.Uses == 1 && isSameCall(f, "runtime.cmpstring") && clobber(c) => mem
+
+// Dead-store elimination must prove the skipped writer dead.
+(Zero {t} [n] dst1 move:(Move {t} [n] dst2 _ mem)) && isSamePtr(dst1, dst2) && clobber(move) => (Zero {t} [n] dst1 mem) // want `result skips move \(Move\)` `Clobber\(move\) without move.Uses == 1`
+(Move {t} [n] dst1 src1 move:(Move {t} [n] dst2 _ mem)) && move.Uses == 1 && isSamePtr(dst1, dst2) && disjoint(src1, n, dst2, n) && clobber(move) => (Move {t} [n] dst1 src1 mem)
+(Zero {t} [n] dst1 (VarDef {x} move:(Move {t} [n] dst2 _ mem))) && move.Uses == 1 && isSamePtr(dst1, dst2) && clobber(move) => (Zero {t} [n] dst1 (VarDef {x} mem)) // want `result skips VarDef, using memory mem from below it, but it is unnamed`
+
+// A void call: SelectN [0] of it is memory, so the root is its only use.
+(SelectN [0] call:(StaticCall {sym} s1:(Store _ (Const64 [sz]) s2:(Store _ src s3:(Store {t} _ dst mem))))) // want `result skips s2 \(Store\)` `Clobber\(s2\) without s2.Uses == 1`
+	&& sz >= 0
+	&& isSameCall(sym, "runtime.memmove")
+	&& s1.Uses == 1 && s3.Uses == 1
+	&& isInlinableMemmove(dst, src, int64(sz), config)
+	&& clobber(s1, s2, s3, call)
+	=> (Move {types.Types[types.TUINT8]} [int64(sz)] dst src mem)
+
+// resetCopy redirects the skipped selector's other uses.
+(StaticLECall {f} [argsize] dict_ key:(SelectN [0] sbts:(StaticLECall {g} _ ptr len mem)) m:(SelectN [1] sbts))
+	&& isSameCall(f, "unique.Make[go.shape.string]")
+	&& isSameCall(g, "runtime.slicebytetostring")
+	&& key.Uses == 1
+	&& sbts.Uses == 2
+	&& resetCopy(m, mem)
+	&& clobber(sbts)
+	&& clobber(key)
+	=> (StaticLECall {f} [argsize] dict_ (StringMake <typ.String> ptr len) mem)
+
+// Aggregate copies and re-created zero-width markers are fine.
+(Store {t} dst (Load src mem) mem) && !CanSSA(t) => (Move {t} [t.Size()] dst src mem)
+(Store {t} dst (Load src mem) (VarDef {x} mem)) && !CanSSA(t) => (Move {t} [t.Size()] dst src (VarDef {x} mem))
+
+// A load from a Move's destination re-reads its source.
+(Load <t1> p1 move:(Move [n] p2 src mem)) && t1.Size() <= n && isSamePtr(p1, p2) && !isVolatile(src) => @move.Block (Load <t1> src mem) // want `the result reads src, the source of move \(Move\), again in a new Load, but the condition doesn't establish isStackPtr\(src\)`
+(Load <t1> op1:(OffPtr [o1] p1) move:(Move [n] p2 src mem)) && o1 >= 0 && o1+t1.Size() <= n && isSamePtr(p1, p2) && isStackPtr(src) => @move.Block (Load <t1> (OffPtr <op1.Type> [o1] src) mem)
+// Collapsing A -> B -> C into A -> C reads A twice unless A is on the stack (CL 145208).
+(Move {t1} [s] dst tmp1 midmem:(Move {t2} [s] tmp2 src _)) && isSamePtr(tmp1, tmp2) && !isVolatile(src) => (Move {t1} [s] dst src midmem) // want `the result reads src, the source of midmem \(Move\), again in a new Move`
+(Move {t1} [s] dst tmp1 midmem:(Move {t2} [s] tmp2 src _)) && isSamePtr(tmp1, tmp2) && isStackPtr(src) && !isVolatile(src) => (Move {t1} [s] dst src midmem)

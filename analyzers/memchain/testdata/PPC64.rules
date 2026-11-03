@@ -1,0 +1,2 @@
+(Bswap64 x:(MOVDload [off] {sym} ptr mem)) => @x.Block (MOVDBRload (MOVDaddr <ptr.Type> [off] {sym} ptr) mem) // want `load x \(MOVDload\) is re-issued as MOVDBRload, but the condition doesn't establish x.Uses == 1`
+(BRD x:(MOVDload [off] {sym} ptr mem)) && x.Uses == 1 => @x.Block (MOVDBRload (MOVDaddr <ptr.Type> [off] {sym} ptr) mem)

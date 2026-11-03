@@ -1,0 +1,59 @@
+// Store forwarding must compare the load with the store that provides x.
+(Load <t1> p1 (Store {t2} p2 _ (Store {t3} p3 x _))) // want `the result is x, stored with type t3, but the condition compares the load's size with t2.Size\(\)`
+	&& isSamePtr(p1, p3)
+	&& copyCompatibleType(t1, x.Type)
+	&& t1.Size() == t2.Size()
+	&& disjoint(p3, t3.Size(), p2, t2.Size())
+	=> x
+(Load <t1> p1 (Store {t2} p2 _ (Store {t3} p3 _ (Store {t4} p4 x _)))) // want `the result uses x, stored by Store to p4, but the condition compares p1 with p3 instead, another store's pointer` `the Store to p2 doesn't change` `the Store to p3 doesn't change`
+	&& isSamePtr(p1, p3)
+	&& copyCompatibleType(t1, x.Type)
+	&& t1.Size() == t4.Size()
+	=> x
+(Load <t1> p1 (Store {t2} p2 _ (Store {t3} p3 _ (Store {t4} p4 _ (Store {t5} p5 x _)))))
+	&& isSamePtr(p1, p5)
+	&& copyCompatibleType(t1, x.Type)
+	&& t1.Size() == t5.Size()
+	&& disjoint(p5, t5.Size(), p2, t2.Size())
+	&& disjoint(p5, t5.Size(), p3, t3.Size())
+	&& disjoint(p5, t5.Size(), p4, t4.Size())
+	=> x
+
+// Reading a Move's source later needs !isVolatile (go.dev/issue/43570).
+(Move {t1} [s] dst tmp1 midmem:(Move {t2} [s] tmp2 src _)) // want `the result reads src, a matched Move's source, in a new Move without checking !isVolatile\(src\)`
+	&& t1.Compare(t2) == types.CMPeq
+	&& isSamePtr(tmp1, tmp2)
+	&& isStackPtr(src)
+	&& disjoint(src, s, tmp2, s)
+	=> (Move {t1} [s] dst src midmem)
+(Move {t1} [s] dst tmp1 midmem:(VarDef (Move {t2} [s] tmp2 src _)))
+	&& t1.Compare(t2) == types.CMPeq
+	&& isSamePtr(tmp1, tmp2)
+	&& isStackPtr(src) && !isVolatile(src)
+	&& disjoint(src, s, tmp2, s)
+	=> (Move {t1} [s] dst src midmem)
+// The root's own source is read at the same point.
+(Move {t} [n] dst1 src1 move:(Move {t} [n] dst2 _ mem))
+	&& move.Uses == 1
+	&& isSamePtr(dst1, dst2) && disjoint(src1, n, dst2, n)
+	&& clobber(move)
+	=> (Move {t} [n] dst1 src1 mem)
+
+// Reading through a store needs a disjointness proof.
+(Load <t1> p1 (Store {t2} p2 _ (Store {t3} p3 _ (Store {t4} p4 x _)))) && isSamePtr(p1, p4) && copyCompatibleType(t1, x.Type) && t1.Size() == t4.Size() && disjoint(p4, t4, p2, t2) => x // want `the Store to p3 doesn't change the root's location, but the condition doesn't establish that with Disjoint`
+(Load <t1> op1:(OffPtr [o1] p1) (Store {t2} p2 _ mem:(Zero [n] p3 _))) && o1 >= 0 && o1+t1.Size() <= n && isSamePtr(p1, p3) && CanSSA(t1) => @mem.Block (Load <t1> (OffPtr <op1.Type> [o1] p3) mem) // want `the Store to p2 doesn't change`
+(Load <t1> op1:(OffPtr [o1] p1) (Store {t2} p2 _ (Store {t3} p3 _ mem:(Zero [n] p4 _)))) && o1 >= 0 && o1+t1.Size() <= n && isSamePtr(p1, p4) && CanSSA(t1) && disjoint(op1, t1, p2, t2) && disjoint(op1, t1, p3, t3) => @mem.Block (Load <t1> (OffPtr <op1.Type> [o1] p4) mem)
+(Store {t1} p1 (Load <t2> p2 oldmem) mem:(Store {t3} p3 _ (Store {t4} p4 _ oldmem))) && isSamePtr(p1, p2) && t2.Size() == t1.Size() && disjoint(p1, t1, p3, t3) => mem // want `the Store to p4 doesn't change`
+(Store {t1} op1:(OffPtr [o1] p1) x mem:(Store {t2} p2 _ (Zero [n] p3 _))) && isConstZero(x) && o1 >= 0 && t1.Size() + o1 <= n && isSamePtr(p1, p3) && disjoint(op1, t1, p2, t2) => mem
+(Store {t1} p1 x1 (Store {t2} p2 x2 mem)) && isSamePtr(p1, p2) && t1.Size() >= t2.Size() => (Store {t1} p1 x1 mem)
+
+// Forwarding must prove the pointers equal.
+(Load <t1> p1 (Store {t2} p2 x _)) && copyCompatibleType(t1, x.Type) && t1.Size() == t2.Size() => x // want `the result uses x, stored by Store to p2, but nothing establishes isSamePtr\(p1, p2\)`
+(Load <t1> p1 (Store {t2} p2 (Const64 [x]) _)) && t2.Size() == 8 && is64BitFloat(t1) => (Const64F [math.Float64frombits(uint64(x))]) // want `nothing establishes isSamePtr\(p1, p2\)`
+// With identical types, comparing the wrong store's size only loses optimizations.
+(Load <t1> p1 (Store {t2} p2 _ (Store {t3} p3 x _)))
+	&& isSamePtr(p1, p3)
+	&& t1.Compare(x.Type) == types.CMPeq
+	&& t1.Size() == t2.Size()
+	&& disjoint(p3, t3.Size(), p2, t2.Size())
+	=> x

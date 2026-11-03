@@ -1,0 +1,11 @@
+// The combined access starts at the lowest offset the match encodes.
+(MOVDstore [i] {s} p w1 x:(MOVDstore [i-8] {s} p w0 mem)) // want `STMG2 uses offset \[i\], but the match puts x \(MOVDstore\) at \[i-8\], a lower offset`
+  && p.Op != OpSB
+  && x.Uses == 1
+  && clobber(x)
+  => (STMG2 [i] {s} p w0 w1 mem)
+(MOVDstore [i] {s} p w1 x:(MOVDstore [i-8] {s} p w0 mem))
+  && p.Op != OpSB
+  && x.Uses == 1
+  && clobber(x)
+  => (STMG2 [i-8] {s} p w0 w1 mem)

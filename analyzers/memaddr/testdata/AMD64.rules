@@ -1,0 +1,107 @@
+// Store combining without explicit offsets and symbols (go.dev/issue/44823).
+(MOVBstore [7] p1 (SHRQconst [56] w) // want `MOVBstore is combined .* its \{sym\} is` `x1 \(MOVWstore\) .* \{sym\}` `x2 \(MOVLstore\) .* \{sym\}` `x3 \(MOVBstore\) .* its \[offset\] and \{sym\} are unconstrained`
+  x1:(MOVWstore [5] p1 (SHRQconst [40] w)
+  x2:(MOVLstore [1] p1 (SHRQconst [8] w)
+  x3:(MOVBstore p1 w mem))))
+  && x1.Uses == 1
+  && x2.Uses == 1
+  && x3.Uses == 1
+  && clobber(x1, x2, x3)
+  => (MOVQstore p1 w mem)
+(MOVBstore [7] {s} p1 (SHRQconst [56] w)
+  x1:(MOVWstore [5] {s} p1 (SHRQconst [40] w)
+  x2:(MOVLstore [1] {s} p1 (SHRQconst [8] w)
+  x3:(MOVBstore [0] {s} p1 w mem))))
+  && x1.Uses == 1
+  && x2.Uses == 1
+  && x3.Uses == 1
+  && clobber(x1, x2, x3)
+  => (MOVQstore {s} p1 w mem)
+
+// Load combining that drops the offset and symbol.
+(ORL x0:(MOVBload [i] {s} p mem) (SHLLconst [8] x1:(MOVBload [i+1] {s} p mem))) // want `MOVWload accesses p like x0 \(MOVBload\), but drops its offset i` `drops its symbol s`
+  && x0.Uses == 1 && x1.Uses == 1 && clobber(x0, x1)
+  => (MOVWload p mem)
+(ORL x0:(MOVBload [i] {s} p mem) (SHLLconst [16] x1:(MOVBload [i+1] {s} p mem)))
+  && x0.Uses == 1 && x1.Uses == 1 && clobber(x0, x1)
+  => @x0.Block (MOVWload [i] {s} p mem)
+// Pinned offset and symbol may be dropped.
+(MOVQload [off] {sym} (ADDQ ptr idx) mem) && off == 0 && sym == nil => (MOVQloadidx1 ptr idx mem)
+(MOVQstore [off] {sym} ptr (MOVQload [off] {sym} ptr mem) mem) && off == 0 && sym == nil => (MOVQstore ptr (MOVQload ptr mem) mem)
+
+// A symbol on a computed base (go.dev/issue/15001).
+(ORL x:(MOVBloadidx1 [i] {s} p idx mem) (SHLLconst [8] (MOVBloadidx1 [i+1] {s} p idx mem))) // want `MOVWload carries symbol s on a computed base \(ADDQ\)`
+  => @x.Block (MOVWload [i] {s} (ADDQ <p.Type> p idx) mem)
+(ORL x:(MOVBloadidx1 [i] {s} p idx mem) (SHLLconst [16] (MOVBloadidx1 [i+1] {s} p idx mem)))
+  => @x.Block (MOVWloadidx1 [i] {s} p idx mem)
+(MOVQload [off1] {sym1} (LEAQ [off2] {sym2} base) mem) && canMergeSym(sym1, sym2)
+  => (MOVQload [off1+off2] {mergeSym(sym1,sym2)} base mem)
+
+// sequentialAddresses(p1, p0, 4) makes p1 the lower address.
+(ORQ x0:(MOVBELload [i] {s} p0 mem) // want `MOVBEQload uses p0, but sequentialAddresses\(p1, p0, ...\) makes p0 the higher address`
+    sh:(SHLQconst [32] x1:(MOVBELload [i] {s} p1 mem)))
+  && x0.Uses == 1 && x1.Uses == 1 && sh.Uses == 1
+  && sequentialAddresses(p1, p0, 4)
+  && clobber(x0, x1, sh)
+  => (MOVBEQload [i] {s} p0 mem)
+(ORQ x0:(MOVBELload [i] {s} p0 mem)
+    sh:(SHLQconst [16] x1:(MOVBELload [i] {s} p1 mem)))
+  && x0.Uses == 1 && x1.Uses == 1 && sh.Uses == 1
+  && sequentialAddresses(p1, p0, 4)
+  && clobber(x0, x1, sh)
+  => (MOVBEQload [i] {s} p1 mem)
+// i0 == i1+4 makes i1 the lower offset.
+(ORQ x0:(MOVBELload [i0] {s} p mem) // want `MOVBEQload uses offset i0, but the condition makes i0 the higher offset \(i0 == i1 \+ 4\)`
+    sh:(SHLQconst [8] x1:(MOVBELload [i1] {s} p mem)))
+  && i0 == i1+4
+  && x0.Uses == 1 && x1.Uses == 1 && sh.Uses == 1
+  && clobber(x0, x1, sh)
+  => (MOVBEQload [i0] {s} p mem)
+(ORQ x0:(MOVBELload [i0] {s} p mem)
+    sh:(SHLQconst [24] x1:(MOVBELload [i1] {s} p mem)))
+  && i0 == i1+4
+  && x0.Uses == 1 && x1.Uses == 1 && sh.Uses == 1
+  && clobber(x0, x1, sh)
+  => (MOVBEQload [i1] {s} p mem)
+
+// Read-modify-write fusion must load the stored location.
+(MOVQstore {sym} [off] ptr y:(ADDQload x [off] {sym} ptr2 mem) mem) && y.Uses == 1 && clobber(y) // want `MOVQstore is fused into read-modify-write ADDQmodify, but its load loads from ptr2, not ptr`
+  => (ADDQmodify [off] {sym} ptr x mem)
+(MOVQstore {sym} [off] ptr y:(ANDQload x [off2] {sym} ptr mem) mem) && y.Uses == 1 && clobber(y) // want `loads at offset \[off2\], not \[off\]`
+  => (ANDQmodify [off] {sym} ptr x mem)
+(MOVQstore {sym} [off] ptr y:(ORQload x [off] {sym} ptr mem) mem) && y.Uses == 1 && clobber(y)
+  => (ORQmodify [off] {sym} ptr x mem)
+(MOVQstore [off] {sym} ptr a:(ADDQconst [c] l:(MOVQload [off] {sym} ptr2 mem)) mem)
+  && isSamePtr(ptr, ptr2) && a.Uses == 1 && l.Uses == 1 && clobber(l, a)
+  => (ADDQconstmodify {sym} [makeValAndOff(int32(c),off)] ptr mem)
+
+// Pointers related by sequentialAddresses are one location.
+(MOVQstoreconst [c] {s} p1 x:(MOVQstoreconst [a] p0 mem)) // want `x \(MOVQstoreconst\) is combined with other memory ops but its \{sym\} is unconstrained`
+  && x.Uses == 1
+  && sequentialAddresses(p0, p1, int64(a.Off()+8-c.Off()))
+  && a.Val() == 0 && c.Val() == 0
+  && clobber(x)
+  => (MOVOstoreconst [makeValAndOff(0,a.Off())] {s} p0 mem)
+(MOVQstoreconst [c] {s} p1 x:(MOVQstoreconst [a] {s} p0 mem))
+  && x.Uses == 1
+  && sequentialAddresses(p0, p1, int64(a.Off()+8-c.Off()))
+  && a.Val() == 0 && c.Val() == 0
+  && clobber(x)
+  => (MOVOstoreconst [makeValAndOff(0,a.Off())] {s} p0 mem)
+
+// Arch store-to-load forwarding must match the whole address.
+(MOVQload [off] {sym} ptr (MOVQstore [off2] {sym2} ptr2 x _)) && sym == sym2 && isSamePtr(ptr, ptr2) => x // want `the result uses x, stored by MOVQstore at \[off2\], but the MOVQload's \[off\] isn't shown equal to it`
+(MOVLload [off] {sym} ptr (MOVLstore [off2] {sym2} ptr2 x _)) && sym == sym2 && off == off2 => (MOVLQZX x) // want `nothing establishes isSamePtr\(ptr, ptr2\)`
+(MOVWload [off] {sym} ptr (MOVWstore [off] {sym2} ptr x _)) => (MOVWQZX x) // want `stored by MOVWstore with \{sym2\}, but the MOVWload's \{sym\} isn't shown equal to it`
+(MOVBload [off] {sym} ptr (MOVBstore [off2] {sym2} ptr2 x _)) && sym == sym2 && off == off2 && isSamePtr(ptr, ptr2) => (MOVBQZX x)
+(ADDQload x [off] {sym} ptr (MOVSDstore [off] {sym} ptr y _)) => (ADDQ x (MOVQf2i y))
+
+// The fused load must read the memory state the store writes over.
+(MOVQstore {sym} [off] ptr y:(SUBQload x [off] {sym} ptr mem2) mem) && y.Uses == 1 && clobber(y) // want `its load reads memory state mem2, not mem`
+  => (SUBQmodify [off] {sym} ptr x mem)
+
+// Address folding keeps both offsets and both symbols.
+(MOVQload [off1] {sym} (ADDQconst [off2] ptr) mem) && is32Bit(int64(off1)+int64(off2)) => (MOVQload [off2] {sym} ptr mem) // want `MOVQload folds ADDQconst into its address but drops MOVQload's offset off1`
+(MOVLload [off1] {sym} (ADDQconst [off2] ptr) mem) && is32Bit(int64(off1)+int64(off2)) => (MOVLload [off1+off2] {sym} ptr mem)
+(MOVLload [off1] {sym1} (LEAQ [off2] {sym2} base) mem) && is32Bit(int64(off1)+int64(off2)) && canMergeSym(sym1, sym2) => (MOVLload [off1+off2] {sym1} base mem) // want `drops LEAQ's symbol sym2`
+(MOVWload [off] {sym} (ADDQ ptr idx) mem) && off == 0 && sym == nil => (MOVWloadidx1 ptr idx mem)
