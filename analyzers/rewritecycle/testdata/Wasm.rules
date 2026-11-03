@@ -1,0 +1,9 @@
+// Fixed in cd9fd640db: moving the constant to arg 1 loops when both
+// args are constants and the folding rule declines (here, for NaN).
+(F64Add (F64Const [x]) (F64Const [y])) && !math.IsNaN(x + y) => (F64Const [x + y])
+(F64Add (F64Const [x]) y) => (F64Add y (F64Const [x])) // want "rewrite cycle"
+(F64Mul (F64Const [x]) (F64Const [y])) && !math.IsNaN(x * y) => (F64Const [x * y])
+(F64Mul (F64Const [x]) y) && y.Op != OpWasmF64Const => (F64Mul y (F64Const [x]))
+// An earlier unconditional rule always wins.
+(I64Add (I64Const [x]) (I64Const [y])) => (I64Const [x + y])
+(I64Add (I64Const [x]) y) => (I64Add y (I64Const [x]))

@@ -6,7 +6,7 @@ Static analyzers for the Go compiler's SSA rewrite rules
 ```
 go run ./cmd/unruly                     # analyze `go env GOROOT`
 go run ./cmd/unruly ~/go/tip            # a Go root, or a _gen directory
-go run ./cmd/unruly -run dupmatch -arch AMD64,generic ~/go/tip
+go run ./cmd/unruly -run shadow -arch AMD64,generic ~/go/tip
 go run ./cmd/unruly -rev go1.22.0 ~/go/tip   # a revision of a Go git repo
 go run ./cmd/unruly -list
 ```
@@ -45,7 +45,7 @@ findings and 2 if there are errors (including rules that fail to parse).
    ```
 3. Add `analyzers/<name>/testdata/*.rules` and a test (see below).
 
-See `analyzers/dupmatch` and `analyzers/selfrewrite` for examples.
+See `analyzers/shadow` and `analyzers/selfrewrite` for examples.
 
 A `Pass` has `Sets`, the rule sets to analyze (`-arch` selects them), and
 `Corpus`, everything loaded, for analyses that relate rule sets (such as
@@ -258,8 +258,8 @@ and run `go test -v -run Survey ./analyzers/myanalyzer`.
 revision's own op tables:
 
 ```go
-analysistest.RunRevision(t, "79a3482d9e", dupmatch.Analyzer,
-	analysistest.Want{File: "PPC64.rules", Line: 557, Message: "shadowed"},
+analysistest.RunRevision(t, "79a3482d9e", shadow.Analyzer,
+	analysistest.Want{File: "PPC64.rules", Line: 557, Message: "never fires"},
 	analysistest.Want{File: "PPC64.rules", Line: 462, Absent: true},
 	// Rule matches the source text, before | expansion.
 	analysistest.Want{File: "generic.rules", Rule: "(Sub(64|32|16|8) (Add(64|32|16|8) x y) y)"},

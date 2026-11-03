@@ -15,7 +15,7 @@ import (
 
 // An Analyzer is a static check of rules.
 type Analyzer struct {
-	Name string // a short identifier, such as "dupmatch"
+	Name string // a short identifier, such as "shadow"
 	Doc  string // the first line is a one-sentence summary
 	Run  func(*Pass) error
 }

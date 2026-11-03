@@ -1,0 +1,7 @@
+(ADDQ x (MOVQconst [c])) && is32Bit(c) => (ADDQconst [int32(c)] x)
+(ADDQ (MOVQconst [d]) y) && is32Bit(d) => (ADDQconst [int32(d)] y) // want "never fires: AMD64.rules:1"
+(SUBQ x (MOVQconst [c])) && is32Bit(c) => (SUBQconst x [int32(c)])
+(SUBQ (MOVQconst [c]) x) && is32Bit(c) => (NEGQ (SUBQconst <v.Type> x [int32(c)]))
+// A partially shadowed alternation.
+(CMPQconst (MOVLQSX x) [c]) => (CMPLconst x [c])
+(CMP(Q|L)const (MOV(LQSX|LQZX) x:(ANDLconst [m] _)) [c]) && c >= 0 => (CMPLconst x [c]) // want `expansion \(CMPQconst \(MOVLQSX`

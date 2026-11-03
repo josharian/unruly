@@ -1,0 +1,20 @@
+// go.dev/issue/25006 (fixed in fb017c60bc): TESTQconst [-1] of a
+// MOVQconst [-1] cycles through TESTQ.
+(TESTQconst [-1] x) => (TESTQ x x) // want `rewrite cycle: this rule rewrites \(TESTQconst \[-1\] \(MOVQconst \[-1\]\)\) to \(TESTQ \(MOVQconst \[-1\]\) \(MOVQconst \[-1\]\)\), which AMD64.rules:6 \(\(TESTQ \(MOVQconst \[c\]\) x\)\) rewrites back`
+(TESTLconst [-1] x) && x.Op != OpAMD64MOVLconst => (TESTL x x)
+
+(TESTQ (MOVQconst [c]) x) && is32Bit(c) => (TESTQconst [int32(c)] x)
+(TESTL (MOVLconst [c]) x) => (TESTLconst [c] x)
+
+// A guard that the other rule's condition refutes.
+(ADDQconst [c] x) && c < 0 => (SUBQconst [c] x)
+(SUBQconst [c] x) && c > 0 => (ADDQconst [c] x)
+
+// Canonicalization by a strict order is not a cycle.
+(CMPQ x y) && ssa.CanonLessThan(x,y) => (InvertFlags (CMPQ y x))
+(CMPL x y) && ssa.CanonLessThan(x,y) => (CMPL y x)
+
+// A rule whose result is its match.
+(NOTQ x) => (NOTQ x) // want `rewrite cycle: this rule rewrites \(NOTQ x\) to \(NOTQ x\), and then back to \(NOTQ x\)`
+// Resetting a type, guarded by the type, is not a cycle.
+(NOTL <t> x) && t.IsSigned() => (NOTL <typ.UInt32> x)

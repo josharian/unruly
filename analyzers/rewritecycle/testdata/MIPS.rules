@@ -1,0 +1,4 @@
+// go.dev/issue/19842 (fixed in fc327a14c4): once rulegen matched
+// commutative ops in both orders, this canonicalization rule matched
+// its own result.
+(Select1 (MULTU x (MOVWconst [c]))) && x.Op != OpMIPSMOVWconst => (Select1 (MULTU (MOVWconst [c]) x)) // want "rewrite cycle: this rule rewrites .* to .*, and then back"
