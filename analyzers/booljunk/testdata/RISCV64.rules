@@ -1,0 +1,4 @@
+(If cond yes no) => (BNEZ (MOVBUreg <typ.UInt64> cond) yes no)
+(EqB x y) => (SEQZ (SUB <typ.Bool> x y)) // want `SEQZ reads the whole register of x`
+(Not ...) => (SEQZ ...) // want `SEQZ reads the whole register of Not's arg 0`
+(NeqB x y) => (SNEZ (SUB <typ.Bool> (MOVBUreg <typ.UInt64> x) (MOVBUreg <typ.UInt64> y)))

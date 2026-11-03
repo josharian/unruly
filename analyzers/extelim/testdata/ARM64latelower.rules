@@ -1,0 +1,8 @@
+// MOVBreg can have type uint32: uint32(int8(x)) is a SignExt8to32 of type
+// uint32. A spilled uint32 is reloaded zero-extended.
+(MOVWreg x:(MOVBreg _)) => (MOVDreg x) // want `MOVBreg can have type uint32 \(ARM64.rules:1\) and a spilled uint32 is restored zero-extended: 0xffffffffffffff80 comes back as 0x00000000ffffff80`
+
+// MOVWload's values are signed, so this one is fine.
+(MOVWreg x:(MOVWload _ _)) => (MOVDreg x)
+
+(MOVWUreg x) && ssa.ZeroUpper32Bits(x) => x

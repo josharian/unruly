@@ -1,0 +1,2 @@
+(CondSelect <t> x y cond) => (OR (MASKEQZ <t> x cond) (MASKNEZ <t> y cond)) // want `MASKEQZ reads the whole register of cond`
+(If cond yes no) => (NEZ (MOVBUreg <typ.UInt64> cond) yes no)

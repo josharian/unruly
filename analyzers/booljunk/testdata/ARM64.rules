@@ -1,0 +1,7 @@
+// A bool's register may hold junk above its low byte.
+(If cond yes no) => (NZ cond yes no) // want `NZ branches on the whole register of cond`
+(CondSelect x y boolval) && ssa.FlagArg(boolval) == nil => (CSEL [ssaop.OpARM64NotEqual] x y (CMPWconst [0] boolval)) // want `CMPWconst reads the whole register of boolval`
+
+// Ops that compute a bool's low byte from their args' low bytes are fine.
+(EqB x y) => (XOR (MOVDconst [1]) (XOR <typ.Bool> x y))
+(Not x) => (XOR (MOVDconst [1]) x)

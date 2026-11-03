@@ -1,0 +1,18 @@
+(SignExt8to32 ...) => (MOVBreg ...)
+(SignExt32to64 ...) => (MOVWreg ...)
+(ZeroExt32to64 ...) => (MOVWUreg ...)
+(Load <t> ptr mem) && is32BitInt(t) && t.IsSigned() => (MOVWload ptr mem)
+
+// Removing an extension based on its argument's type.
+(MOVBUreg x) && x.Type.IsBoolean() => (MOVDreg x) // want `MOVBUreg \(which zero-extends from 8 bits\) removed, but nothing makes x already zero-extended from 8 bits`
+
+// Removing an extension whose result is no wider than the extension.
+(MOVHUreg x) && v.Type.Size() <= 2 => x
+
+// UBFX extracts bfc.Width() bits.
+(MOVWUreg (UBFX [bfc] x)) && bfc.Width() <= 32 => (UBFX [bfc] x)
+(MOVHUreg (UBFX [bfc] x)) && bfc.Width() <= 32 => (UBFX [bfc] x) // want `UBFX \[bfc\] is zero-extended from 17 bits when bfc=ArmBFAuxInt\(0, 17\)`
+
+// Folding an extension into a constant.
+(MOVBreg (MOVDconst [c])) => (MOVDconst [int64(int8(c))])
+(MOVHreg (MOVDconst [c])) => (MOVDconst [int64(c)]) // want `match and result differ when c=0x8000`

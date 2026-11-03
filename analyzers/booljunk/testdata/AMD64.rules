@@ -1,0 +1,4 @@
+// check is not a bool here.
+(CondSelect <t> x y check) && !check.Type.IsFlags() && check.Type.Size() == 8 && (ssa.Is64BitInt(t) || ssa.IsPtr(t)) => (CMOVQNE y x (CMPQconst [0] check))
+(CondSelect <t> x y check) && !check.Type.IsFlags() && check.Type.Size() == 1 && (ssa.Is64BitInt(t) || ssa.IsPtr(t)) => (CMOVQNE y x (CMPBconst [0] check))
+(If cond yes no) => (NE (TESTB cond cond) yes no)

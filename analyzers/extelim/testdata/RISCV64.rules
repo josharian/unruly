@@ -1,0 +1,11 @@
+(RotateLeft32 ...) => (ROLW ...)
+(Hmul32 ...) => (MULW ...)
+
+// W ops sign-extend; their values can be uint32, which is reloaded
+// zero-extended.
+(MOVWreg x:(MULW _ _)) => (MOVDreg x) // want `MULW can have type uint32 \(RISCV64.rules:2\)`
+(MOVWreg x:(ROLW _ _)) && (x.Type.Size() == 8 || (x.Type.Size() == 4 && x.Type.IsSigned())) => (MOVDreg x)
+
+// SRLIW [0] is a sign extension.
+(MOVWUreg x:(SRLIW [c] y)) => x // want `SRLIW \[c\] is sign-extended from 32 bits when c=0`
+(MOVHUreg x:(SRLIW [c] y)) && c >= 16 => x

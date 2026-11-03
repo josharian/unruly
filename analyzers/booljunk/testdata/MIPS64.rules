@@ -1,0 +1,2 @@
+// MIPS64 has no register ABI: its bools are 0 or 1 in the whole register.
+(If cond yes no) => (NE cond yes no)

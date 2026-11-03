@@ -1,0 +1,7 @@
+// x.Type.Size() is in bytes, so the condition does not stop c < 16.
+(MOV(HZ|H)reg (S(R|RA)Wconst [c] x)) && x.Type.Size() <= 16 => (S(R|RA)Wconst [c] x) // want `MOVHZreg \(which zero-extends from 16 bits\) removed, but SRWconst \[c\] is zero-extended from 31 bits when c=1` `MOVHreg \(which sign-extends from 16 bits\) removed, but SRAWconst \[c\] is sign-extended from 31 bits when c=1`
+(MOVHZreg (SRWconst [c] x)) && c >= 16 => (SRWconst [c] x)
+
+// Dropping a sign extension under a mask.
+(Select0 (ANDCCconst [c] (MOVBreg x))) => (Select0 (ANDCCconst [c&0xFF] x)) // want `match and result differ`
+(Select0 (ANDCCconst [c] (MOVBZreg x))) => (Select0 (ANDCCconst [c&0xFF] x))

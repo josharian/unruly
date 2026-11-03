@@ -1,0 +1,9 @@
+(Trunc64to32 x) => (MOVWUreg x)
+
+// The two rules run in the same pass: if the first applies before the
+// second removes the inner MOVWUreg, the outer extension is lost.
+(MOVWUreg x:(MOVWUreg _)) => (MOVVreg x) // want `MOVWUreg can have type int32 \(MIPS64.rules:1\) and a spilled int32 is restored sign-extended` `MOVWUreg removed because MOVWUreg is zero-extended from 32 bits, but MIPS64.rules:6 may rewrite that MOVWUreg later in the same pass into x`
+(MOVWUreg x) && v.Type.Size() <= 4 => x
+
+(MOVBload [off] {sym} (SB) _) && symIsRO(sym) => (MOVVconst [int64(read8(sym, int64(off)))])
+(MOVBreg x:(MOVBload _ _)) => (MOVVreg x) // want `MOVBreg removed because MOVBload is sign-extended from 8 bits, but MIPS64.rules:8 may rewrite that MOVBload later in the same pass into \(MOVVconst \[int64\(read8\(sym, int64\(off\)\)\)\]\), which is zero-extended from 8 bits`

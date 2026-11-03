@@ -1,0 +1,3 @@
+(If cond yes no) => (NE (CMPWconst [0] cond) yes no) // want `CMPWconst reads the whole register of cond`
+(CondSelect x y bool) && ssa.FlagArg(bool) == nil => (ISEL [6] x y (CMPconst [0] (ANDconst [1] bool)))
+(EqB x y) => (ANDconst [1] (EQV x y))
