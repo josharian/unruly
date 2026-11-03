@@ -1,0 +1,3 @@
+// VRNDSCALEPS128's imm8 is unsigned (UInt8); a ValAndOff's Val is sign-extended.
+(VRNDSCALEPS128 [c] l:(VMOVDQUload128 {sym} [off] ptr mem)) && canMergeLoad(v, l) && clobber(l) => (VRNDSCALEPS128load {sym} [makeValAndOff(int32(int8(c)),off)] ptr mem) // want `int32\(int8\(c\)\) moves VRNDSCALEPS128's zero-extended immediate c into VRNDSCALEPS128load, which sign-extends it: c=128 means 0x80 in VRNDSCALEPS128 but 0xffffffffffffff80 in VRNDSCALEPS128load`
+(VRNDSCALEPS256 [c] l:(VMOVDQUload256 {sym} [off] ptr mem)) && canMergeLoad(v, l) && clobber(l) => (VRNDSCALEPS256load {sym} [makeValAndOff(int32(uint8(c)),off)] ptr mem)

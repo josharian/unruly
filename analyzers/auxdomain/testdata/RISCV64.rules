@@ -1,0 +1,5 @@
+// Masking a count that is already in range narrows it.
+(SRLI <t> [x] (MOVWUreg y)) => (SRLIW <t> [int64(x&31)] y) // want `SRLIW \[int64\(x & 31\)\] masks SRLI's count x, which is in \[0, 63\] \(RISCV64Ops.go:\d+\), to 5 bits: 32 becomes 0`
+
+// Masking a register's count is how the hardware treats it.
+(SRL x (MOVDconst [val])) => (SRLI [int64(val&63)] x)

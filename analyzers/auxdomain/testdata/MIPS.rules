@@ -1,0 +1,3 @@
+// The earlier, unconditional rule handles c == 1.
+(Select0 (MULTU (MOVWconst [1]) _)) => (MOVWconst [0])
+(Select0 (MULTU (MOVWconst [c]) x)) && ssa.IsPowerOfTwo(uint32(c)) => (SRLconst [int32(32-ssa.Log32u(uint32(c)))] x)

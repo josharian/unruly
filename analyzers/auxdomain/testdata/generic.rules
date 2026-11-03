@@ -1,0 +1,4 @@
+// A shift by a negative count panics.
+(Lsh64x64 (Const64 [c]) (Const64 [d])) && d < 64 => (Const64 [c << d]) // want `c << d panics \(negative shift amount\) when c=0 d=-1: d is -1`
+(Rsh64x64 (Const64 [c]) (Const64 [d])) && d >= 0 => (Const64 [c >> d])
+(Rsh64Ux64 (Const64 [c]) (Const64 [d])) => (Const64 [int64(uint64(c) >> uint64(d))])

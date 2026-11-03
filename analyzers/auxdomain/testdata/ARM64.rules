@@ -1,0 +1,6 @@
+// SRLconst's count 64-c is in [0, 63], so c is in [1, 64].
+(ADDshiftLL [c] (SRLconst x [64-c]) x2) => (EXTRconst [64-c] x2 x)
+
+// A copy of a count from an op whose domain is not documented.
+(CMPshiftLL (MOVDconst [c]) x [d]) => (InvertFlags (CMPconst [c] (SLLconst <x.Type> x [d])))
+

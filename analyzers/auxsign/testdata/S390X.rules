@@ -1,0 +1,15 @@
+// CMPUconst's immediate is zero-extended: CMPUconst [-1] compares against 0xffffffff.
+(CMPUconst (MOVDconst [x]) [y]) && uint64(x)==uint64(y) => (FlagEQ) // want `CMPUconst's auxint y is zero-extended \(S390X codegen emits int64\(uint32\(v.AuxInt\)\)\), but uint64\(y\) sign-extends it: y=-1 stands for 0xffffffff, not 0xffffffffffffffff; use uint64\(uint32\(y\)\)`
+(CMPUconst (MOVDconst [x]) [y]) && uint64(x)<uint64(uint32(y)) => (FlagLT)
+(CMPUconst x:(SRDconst _ [c]) [y]) && y < 100 => (FlagLT) // want `but y < 100 compares it as signed`
+
+// CMPconst's immediate is sign-extended; moving a non-negative one is fine.
+(CMPconst x:(SRDconst _ [c]) [n]) && c > 0 && n >= 0 => (CMPUconst x [n])
+
+// A 64-bit signed compare-and-branch sign-extends; a 32-bit one agrees modulo 2^32.
+(BRC {c} (CMPUconst  x [y]) yes no) && y == int32( int8(y)) && (c == s390x.Equal || c == s390x.LessOrGreater) => (CGIJ  {c} x [ int8(y)] yes no) // want `int8\(y\) moves CMPUconst's zero-extended immediate y into CGIJ, which sign-extends it: y=-1 means 0xffffffff in CMPUconst but 0xffffffffffffffff in CGIJ`
+(BRC {c} (CMPWUconst x [y]) yes no) && y == int32( int8(y)) && (c == s390x.Equal || c == s390x.LessOrGreater) => (CIJ   {c} x [ int8(y)] yes no)
+(BRC {c} (CMPUconst  x [y]) yes no) && y == int32(uint8(y)) => (CLGIJ {c&^s390x.Unordered} x [uint8(y)] yes no)
+
+// An unsigned 32-bit constant, stored as int32.
+(CMPU x (MOVDconst [c])) && ssa.IsU32Bit(c) => (CMPUconst x [int32(c)])

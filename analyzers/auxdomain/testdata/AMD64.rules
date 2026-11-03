@@ -1,0 +1,13 @@
+// A count that can leave its op's domain.
+(SHLQconst [c] (ADDQ x x)) && c < 63 => (SHLQconst [c+1] x)
+(SHLLconst [c] (ADDL x x)) => (SHLLconst [c+1] x) // want `SHLLconst \[c \+ 1\] is 32, outside \[0, 31\] \(AMD64Ops.go:\d+\), when c=31`
+
+// The earlier rule handles counts >= 64.
+(SHRQ _ (MOVQconst [c])) && uint64(c) >= 64 => (MOVQconst [0])
+(SHRQ x (MOVQconst [c])) => (SHRQconst [int8(c)] x)
+
+// Nothing does here.
+(SARQ x (MOVQconst [c])) => (SARQconst [int8(c)] x) // want `SARQconst \[int8\(c\)\] is 64, outside \[0, 63\]`
+
+// Relating variables: c > d bounds c-d.
+(BTQconst [c] (SHLQconst [d] x)) && c > d => (BTQconst [c-d] x)

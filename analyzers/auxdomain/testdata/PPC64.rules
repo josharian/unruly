@@ -1,0 +1,5 @@
+// SLD uses its count mod 128; a count in [64, 127] gives 0.
+(SLD x (MOVDconst [c])) => (SLDconst [c&63 | (c>>6&1*63)] x) // want `SLD with count c=64 shifts by 64, giving 0 \(it uses the count mod 128, PPC64Ops.go:\d+\), but SLDconst \[c & 63 \| \(c >> 6 & 1 \* 63\)\] is 63`
+// But an arithmetic shift by 64 is a shift by 63.
+(SRAD x (MOVDconst [c])) => (SRADconst [c&63 | (c>>6&1*63)] x)
+(SRD x (MOVDconst [c])) && c&64 == 0 => (SRDconst [c&63] x)
