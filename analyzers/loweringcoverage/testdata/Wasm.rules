@@ -1,0 +1,8 @@
+// Negative offsets match no rule (fixed in 88dc4aee7c).
+(OffPtr [0] ptr) => ptr // want `no Wasm lowering rule matches \(OffPtr \[off\] ptr\): off=-8; off=-8 ptr=SP; off=-32776; off=-32776 ptr=SP and 4 more`
+(OffPtr [off] ptr) && off > 0 => (I64AddConst [off] ptr)
+
+// OffPtr of SP becomes rematerializeable through I64AddConst.
+(I64AddConst [off] x:(SP)) && ssa.IsU32Bit(off) => (LoweredAddr [int32(off)] x)
+
+(Addr {sym} base) => (LoweredAddr {sym} [0] base)

@@ -1,0 +1,32 @@
+// The 8-byte integer store tests the value's type, not the stored type,
+// so a store of struct{ m map[int]int } matches nothing (fixed in 94323206ae).
+(Store {t} ptr val mem) && t.Size() == 8 && ssa.Is64BitFloat(val.Type) => (FMOVDstore ptr val mem) // want `no PPC64 lowering rule matches \(Store \{t\} ptr val mem\): t=struct\{ p \*T \}`
+(Store {t} ptr val mem) && t.Size() == 4 && ssa.Is32BitFloat(val.Type) => (FMOVSstore ptr val mem)
+(Store {t} ptr val mem) && t.Size() == 8 && (ssa.Is64BitInt(val.Type) || ssa.IsPtr(val.Type)) => (MOVDstore ptr val mem)
+(Store {t} ptr val mem) && t.Size() == 4 && ssa.Is32BitInt(val.Type) => (MOVWstore ptr val mem)
+(Store {t} ptr val mem) && t.Size() == 2 => (MOVHstore ptr val mem)
+(Store {t} ptr val mem) && t.Size() == 1 => (MOVBstore ptr val mem)
+
+// Loads have no int8 rule.
+(Load <t> ptr mem) && (ssa.Is64BitInt(t) || ssa.IsPtr(t)) => (MOVDload ptr mem) // want `no PPC64 lowering rule matches \(Load <t> ptr mem\): t=int8;`
+(Load <t> ptr mem) && ssa.Is32BitInt(t) && t.IsSigned() => (MOVWload ptr mem)
+(Load <t> ptr mem) && ssa.Is32BitInt(t) && !t.IsSigned() => (MOVWZload ptr mem)
+(Load <t> ptr mem) && ssa.Is16BitInt(t) && t.IsSigned() => (MOVHload ptr mem)
+(Load <t> ptr mem) && ssa.Is16BitInt(t) && !t.IsSigned() => (MOVHZload ptr mem)
+(Load <t> ptr mem) && t.IsBoolean() => (MOVBZload ptr mem)
+(Load <t> ptr mem) && ssa.Is8BitInt(t) && !t.IsSigned() => (MOVBZload ptr mem)
+(Load <t> ptr mem) && ssa.Is32BitFloat(t) => (FMOVSload ptr mem)
+(Load <t> ptr mem) && ssa.Is64BitFloat(t) => (FMOVDload ptr mem)
+
+// Zero lowering that depends on GOPPC64 leaves power9 without a rule
+// for large sizes.
+(Zero [s] ptr mem) && buildcfg.GOPPC64 <= 8 => (LoweredZero [s] ptr (Zero128 <typ.Vec128>) mem) // want `\(Zero \[s\] \{t\} ptr mem\): s=128 t.Alignment\(\)=1 GOPPC64=9;`
+(Zero [s] ptr mem) && s < 128 && buildcfg.GOPPC64 >= 9 => (LoweredQuadZeroShort [s] ptr (Zero128 <typ.Vec128>) mem)
+(Zero [s] ptr mem) && buildcfg.GOPPC64 >= 10 => (LoweredQuadZero [s] ptr (Zero128 <typ.Vec128>) mem)
+
+// OffPtr of SP becomes rematerializeable through ADD and ADDconst.
+(OffPtr [off] ptr) => (ADD (MOVDconst <typ.Int64> [off]) ptr)
+(ADD x (MOVDconst <t> [c])) && ssa.Is32Bit(c) && !t.IsPtr() => (ADDconst [c] x)
+(ADDconst [c] x:(SP)) && ssa.Is32Bit(c) => (MOVDaddr [int32(c)] x)
+(Addr {sym} base) => (MOVDaddr {sym} [0] base)
+(MOVDaddr {sym} [n] ptr) && sym == nil && n == 0 && (ptr.Op == ssaop.OpArgIntReg || ptr.Op == ssaop.OpPhi) => ptr

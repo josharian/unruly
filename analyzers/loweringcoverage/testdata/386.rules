@@ -1,0 +1,8 @@
+// prove turns Ctz16 into Ctz16NonZero when the argument is known nonzero
+// (fixed in 8d5197d818).
+(Ctz16 x) => (BSFL (ORLconst <typ.UInt32> [0x10000] x)) // want `386 lowers Ctz16, which prove.go:ctzNonZeroOp replaces by Ctz16NonZero, but has no rule for Ctz16NonZero`
+(Ctz8 x) => (BSFL (ORLconst <typ.UInt32> [0x100] x))
+(Ctz8NonZero x) => (BSFL x)
+
+// OffPtr of SP lowers to a plain add (fixed in 37a32a1833).
+(OffPtr [off] ptr) => (ADDLconst [int32(off)] ptr) // want `\(OffPtr \[8\] \(SP\)\) lowers to \(ADDLconst \[8\] \(SP\)\), which is not rematerializeable`

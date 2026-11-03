@@ -1,0 +1,11 @@
+// Load and Store of 8-byte SIMD (SVE predicate) types, but no ZeroSIMD
+// (fixed in 276175b8fe).
+(ZeroSIMD <t>) && t.Size() == 16 => (VMOVI16B [0] <t>) // want `no ARM64 lowering rule matches \(ZeroSIMD <t>\): 8-byte SIMD type;`
+(Load <t> ptr mem) && t.Size() == 16 => (FMOVQload ptr mem) // want `\(Load <t> ptr mem\): t=bool; t=int8;`
+(Store {t} ptr val mem) && t.Size() == 16 => (FMOVQstore ptr val mem) // want `\(Store \{t\} ptr val mem\): t=bool`
+(Load <t> ptr mem) && t.Size() == 8 && t.IsSIMD() => (PLDRload ptr mem)
+(Store {t} ptr val mem) && t.Size() == 8 && t.IsSIMD() => (PSTRstore ptr val mem)
+
+// LocalAddr lowers to a rematerializeable op with symEffect Addr.
+(LocalAddr <t> {sym} base mem) && t.Elem().HasPointers() => (MOVDaddr {sym} (SPanchored base mem))
+(LocalAddr <t> {sym} base _)  && !t.Elem().HasPointers() => (MOVDaddr {sym} base)

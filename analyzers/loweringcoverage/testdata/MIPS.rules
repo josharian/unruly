@@ -1,0 +1,54 @@
+// The catch-all tests s%4 instead of the alignment, so 8-, 12-, and
+// 16-byte zeroing of types aligned to less than 4 matches no rule
+// (fixed in 793e4ec3dd).
+(Zero [0] _ mem) => mem // want `no MIPS lowering rule matches \(Zero \[s\] \{t\} ptr mem\): s=8 t.Alignment\(\)=1; s=8 t.Alignment\(\)=2; s=12 t.Alignment\(\)=1; s=12 t.Alignment\(\)=2 and 5 more;`
+(Zero [1] ptr mem) => (MOVBstore ptr (MOVWconst [0]) mem)
+(Zero [2] {t} ptr mem) && t.Alignment()%2 == 0 =>
+	(MOVHstore ptr (MOVWconst [0]) mem)
+(Zero [2] ptr mem) =>
+	(MOVBstore [1] ptr (MOVWconst [0])
+		(MOVBstore [0] ptr (MOVWconst [0]) mem))
+(Zero [4] {t} ptr mem) && t.Alignment()%4 == 0 =>
+	(MOVWstore ptr (MOVWconst [0]) mem)
+(Zero [4] {t} ptr mem) && t.Alignment()%2 == 0 =>
+	(MOVHstore [2] ptr (MOVWconst [0])
+		(MOVHstore [0] ptr (MOVWconst [0]) mem))
+(Zero [4] ptr mem) =>
+	(MOVBstore [3] ptr (MOVWconst [0])
+		(MOVBstore [2] ptr (MOVWconst [0])
+			(MOVBstore [1] ptr (MOVWconst [0])
+				(MOVBstore [0] ptr (MOVWconst [0]) mem))))
+(Zero [3] ptr mem) =>
+	(MOVBstore [2] ptr (MOVWconst [0])
+		(MOVBstore [1] ptr (MOVWconst [0])
+			(MOVBstore [0] ptr (MOVWconst [0]) mem)))
+(Zero [6] {t} ptr mem) && t.Alignment()%2 == 0 =>
+	(MOVHstore [4] ptr (MOVWconst [0])
+		(MOVHstore [2] ptr (MOVWconst [0])
+			(MOVHstore [0] ptr (MOVWconst [0]) mem)))
+(Zero [8] {t} ptr mem) && t.Alignment()%4 == 0 =>
+		(MOVWstore [4] ptr (MOVWconst [0])
+			(MOVWstore [0] ptr (MOVWconst [0]) mem))
+(Zero [s] {t} ptr mem)
+	&& (s > 16  || s%4 != 0) =>
+	(LoweredZero [int32(t.Alignment())]
+		ptr
+		(ADDconst <ptr.Type> ptr [int32(s-ssa.MoveSize(t.Alignment(), config))])
+		mem)
+
+// The fixed catch-all covers every size and alignment.
+(Move [0] _ _ mem) => mem
+(Move [1] dst src mem) => (MOVBstore dst (MOVBUload src mem) mem)
+(Move [s] {t} dst src mem)
+	&& (s > 16 && ssa.LogLargeCopyValue(v, s) || t.Alignment()%4 != 0) =>
+	(LoweredMove [int32(t.Alignment())]
+		dst
+		src
+		(ADDconst <src.Type> src [int32(s-ssa.MoveSize(t.Alignment(), config))])
+		mem)
+(Move [s] {t} dst src mem) && s%4 == 0 => (LoweredMove [int32(t.Alignment())] dst src (ADDconst <src.Type> src [int32(s-4)]) mem)
+(Move [s] {t} dst src mem) && s > 1 && t.Alignment() == 4 => (LoweredMove [int32(t.Alignment())] dst src (ADDconst <src.Type> src [int32(s-4)]) mem) // a size not a multiple of the alignment never reaches here
+
+// OffPtr of SP becomes a rematerializeable MOVWaddr.
+(OffPtr [off] ptr:(SP)) => (MOVWaddr [int32(off)] ptr)
+(OffPtr [off] ptr) => (ADDconst [int32(off)] ptr)

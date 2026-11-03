@@ -1,0 +1,41 @@
+// The rule zeroes 8 bytes but matches 4-byte zeroing (as in c8f38b3398,
+// where the condition said Size() == 4).
+(Zero [4] {t} ptr mem) && t.Alignment()%2 == 0 => // want `MIPS64 lowering of s=4 t.Alignment\(\)=2: MOVHstore writes bytes \[6,8\), outside \[0,4\)`
+	(MOVHstore [6] ptr (MOVVconst [0])
+		(MOVHstore [4] ptr (MOVVconst [0])
+			(MOVHstore [2] ptr (MOVVconst [0])
+				(MOVHstore [0] ptr (MOVVconst [0]) mem))))
+(Zero [3] ptr mem) => // want `MIPS64 lowering of s=3 t.Alignment\(\)=1: byte 1 is not written \(writes: MOVBstore \[2,3\), MOVBstore \[0,1\)\)`
+	(MOVBstore [2] ptr (MOVVconst [0])
+		(MOVBstore [0] ptr (MOVVconst [0]) mem))
+(Zero [2] ptr mem) => // want `MOVBstore stores 1, not 0`
+	(MOVBstore [1] ptr (MOVVconst [1])
+		(MOVBstore [0] ptr (MOVVconst [0]) mem))
+(Zero [s] {t} ptr mem) && s > 2 => (LoweredZero [t.Alignment()] ptr (ADDVconst <ptr.Type> ptr [s-ssa.MoveSize(t.Alignment(), config)]) mem)
+(Zero [s] {t} ptr mem) => (LoweredZero [t.Alignment()] ptr (ADDVconst <ptr.Type> ptr [s-ssa.MoveSize(t.Alignment(), config)]) mem)
+
+(Move [2] dst src mem) => // want `MOVBstore copies source bytes \[0,1\) to destination bytes \[1,2\)`
+	(MOVBstore [1] dst (MOVBload src mem)
+		(MOVBstore dst (MOVBload src mem) mem))
+(Move [4] dst src mem) => // want `MOVHload reads memory after an earlier store of the copy`
+	(MOVHstore [2] dst (MOVHload [2] src (MOVHstore dst (MOVHload src mem) mem))
+		(MOVHstore dst (MOVHload src mem) mem))
+(Move [s] {t} dst src mem) => (LoweredMove [t.Alignment()] dst src (ADDVconst <src.Type> src [s-ssa.MoveSize(t.Alignment(), config)]) mem)
+
+// Stores and loads, from which the analyzer learns the widths of MOVBstore and so on.
+(Load <t> ptr mem) && t.IsBoolean() => (MOVBUload ptr mem)
+(Load <t> ptr mem) && (ssa.Is8BitInt(t) && t.IsSigned()) => (MOVBload ptr mem)
+(Load <t> ptr mem) && (ssa.Is8BitInt(t) && !t.IsSigned()) => (MOVBUload ptr mem)
+(Load <t> ptr mem) && (ssa.Is16BitInt(t) && t.IsSigned()) => (MOVHload ptr mem)
+(Load <t> ptr mem) && (ssa.Is16BitInt(t) && !t.IsSigned()) => (MOVHUload ptr mem)
+(Load <t> ptr mem) && (ssa.Is32BitInt(t) && t.IsSigned()) => (MOVWload ptr mem)
+(Load <t> ptr mem) && (ssa.Is32BitInt(t) && !t.IsSigned()) => (MOVWUload ptr mem)
+(Load <t> ptr mem) && (ssa.Is64BitInt(t) || ssa.IsPtr(t)) => (MOVVload ptr mem)
+(Load <t> ptr mem) && ssa.Is32BitFloat(t) => (MOVFload ptr mem)
+(Load <t> ptr mem) && ssa.Is64BitFloat(t) => (MOVDload ptr mem)
+(Store {t} ptr val mem) && t.Size() == 1 => (MOVBstore ptr val mem)
+(Store {t} ptr val mem) && t.Size() == 2 => (MOVHstore ptr val mem)
+(Store {t} ptr val mem) && t.Size() == 4 && !t.IsFloat() => (MOVWstore ptr val mem)
+(Store {t} ptr val mem) && t.Size() == 8 && !t.IsFloat() => (MOVVstore ptr val mem)
+(Store {t} ptr val mem) && t.Size() == 4 && t.IsFloat() => (MOVFstore ptr val mem)
+(Store {t} ptr val mem) && t.Size() == 8 && t.IsFloat() => (MOVDstore ptr val mem)
