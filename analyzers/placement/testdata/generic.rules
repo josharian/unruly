@@ -1,0 +1,28 @@
+// Tuple selectors must be in their tuple's block (9f9dd2bfd8).
+(StaticLECall {f} x y m:(SelectN [1] c:(StaticLECall {g} x y mem))) && isSameCall(f, "runtime.cmpstring") && isSameCall(g, "runtime.cmpstring") => (MakeResult (SelectN [0] <typ.Int> c) m) // want "SelectN of c is created in v.Block, but a tuple selector must be in its tuple's block"
+(SelectN [0] (StaticLECall {f} x y (SelectN [1] c:(StaticLECall {g} x y mem)))) && isSameCall(f, "runtime.cmpstring") && isSameCall(g, "runtime.cmpstring") => @c.Block (SelectN [0] <typ.Int> c)
+(SelectN [1] c:(StaticLECall {f} _ _ mem)) && c.Uses == 1 && c.Block == v.Block => (Select1 <types.TypeMem> c)
+
+// @x.Block placement may use only values that dominate x (fbfbf03b28).
+(Load <t1> op1:(OffPtr [o1] p1) (Store {t2} p2 _ mem:(Zero [n] p3 _))) && o1 >= 0 && isSamePtr(p1, p3) => @mem.Block (Load <t1> op1 mem) // want "Load is created in mem.Block, but its arg op1 is bound outside mem"
+(Load <t1> op1:(OffPtr [o1] p1) (Store {t2} p2 _ (Store {t3} p4 _ mem:(Zero [n] p3 _)))) && o1 >= 0 && isSamePtr(p1, p3) => @mem.Block (Load <t1> (OffPtr <op1.Type> [o1] p3) mem)
+
+// Only a Phi-rooted value rule may create a Phi (8893da7c72).
+(If (Phi <t> nx:(Not x) ny:(Not y)) yes no) && nx.Uses == 1 && ny.Uses == 1 => (If (Phi <t> x y) no yes) // want "Phi is created in the If block by a block rule"
+(Phi <t> nx:(Not x) ny:(Not y)) && nx.Uses == 1 && ny.Uses == 1 => (Not (Phi <t> x y))
+(Phi <t> nx:(Neg64 x) ny:(Neg64 y)) && nx.Uses == 1 && ny.Uses == 1 => (Neg64 (Phi <t> y x)) // want "arg y is bound under a Phi arg" "arg x is bound under a Phi arg"
+(Phi <t> nx:(Neg32 x) ny:(Neg32 y) nz:(Neg32 z)) && nx.Uses == 1 => (Neg32 (Phi <t> x y)) // want "only a rule rooted at a 2-arg Phi"
+
+// A value that dominates every predecessor of a Phi's block
+// dominates the block.
+(SliceLen (Phi (SliceMake _ x _) (SliceMake _ x _))) => x
+(SliceCap (Phi (SliceMake _ _ x) _)) => x // want "result x is used in v.Block, but x is bound under a Phi arg"
+
+// A load must read a memory state that is current in its block.
+(ITab (Load ptr mem)) => (Load <typ.Uintptr> ptr mem) // want "Load is created in v.Block with memory arg mem from Load, which may be in an earlier block"
+(StringPtr x:(Load <t> ptr mem)) && t.IsString() => @x.Block (Load <typ.BytePtr> ptr mem)
+(StringLen x:(Load <t> ptr mem)) && x.Block == v.Block => (Load <typ.Int> (OffPtr <typ.IntPtr> [config.PtrSize] ptr) mem)
+(IData x:(Load <t> ptr mem)) && b == x.Block => (Load <typ.BytePtr> (OffPtr <typ.BytePtrPtr> [config.PtrSize] ptr) mem)
+
+// Memory consumed by a matched store is not a placement question.
+(Store {t} dst (Load src mem) (VarDef {x} mem)) && !CanSSA(t) => (Move {t} [t.Size()] dst src (VarDef {x} mem))

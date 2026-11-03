@@ -1,0 +1,2 @@
+// After lowering, the tighten tuple selectors pass moves selectors.
+(LTDBR (Select0 x:(FADD _ _))) => (Select1 x)

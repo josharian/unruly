@@ -1,0 +1,19 @@
+// A load must read a memory state that is current in its block (10141676d1, cde977c23c).
+(BSWAPQ x:(MOVQload [i] {s} p mem)) && x.Uses == 1 => (MOVBEQload [i] {s} p mem) // want `MOVBEQload is created in v.Block with memory arg mem from x \(AMD64MOVQload\).*use @x.Block`
+(BSWAPL x:(MOVLload [i] {s} p mem)) && x.Uses == 1 => @x.Block (MOVBELload [i] {s} p mem)
+(MOVBQSX (MOVBload [off] {sym} ptr mem)) => (MOVBQSXload [off] {sym} ptr mem) // want "MOVBQSXload is created in v.Block"
+(MOVBQZX x:(MOVBload [off] {sym} ptr mem)) && x.Uses == 1 && clobber(x) => @x.Block (MOVBload <v.Type> [off] {sym} ptr mem)
+
+// A merged load that takes other args needs canMergeLoad.
+(ADDQ x l:(MOVQload [off] {sym} ptr mem)) && ssa.CanMergeLoadClobber(v, l, x) && ssa.Clobber(l) => (ADDQload x [off] {sym} ptr mem)
+(ADDL x l:(MOVLload [off] {sym} ptr mem)) && l.Block == v.Block && l.Uses == 1 => (ADDLload x [off] {sym} ptr mem) // want "ADDLload merges the load l but also takes x from outside it; without canMergeLoad"
+(TESTQ a:(ANDQload [off] {sym} x ptr mem) a) && a.Uses == 2 && a.Block == v.Block => (TESTQ (MOVQload <a.Type> [off] {sym} ptr mem) x)
+
+// mergePoint placement (769fda2d51, b81f2f106f).
+(ORL s1:(SHLLconst [j1] x1:(MOVBload [i1] {s} p mem)) or:(ORL s0:(SHLLconst [j0] x0:(MOVBload [i0] {s} p mem)) y)) && i1 == i0+1 && mergePoint(b,x0,x1) != nil => @mergePoint(b,x0,x1) (ORL <v.Type> (SHLLconst <v.Type> [j0] (MOVWload [i0] {s} p mem)) y) // want `ORL is created in mergePoint\(b,x0,x1\), but its arg y is bound outside`
+(ORQ s1:(SHLQconst [j1] x1:(MOVBload [i1] {s} p mem)) or:(ORQ s0:(SHLQconst [j0] x0:(MOVBload [i0] {s} p mem)) y)) && i1 == i0+1 && mergePoint(b,x0,x1,y) != nil => @mergePoint(b,x0,x1,y) (ORQ <v.Type> (SHLQconst <v.Type> [j0] (MOVWload [i0] {s} p mem)) y) // want "the merge point is the latest of those values' blocks, where mem need not be current"
+(ORL x0:(MOVBload [i0] {s} p mem) sh:(SHLLconst [8] x1:(MOVBload [i1] {s} p mem))) && i1 == i0+1 => @mergePoint(b,x0,x1) (MOVWload [i0] {s} p mem) // want "the condition doesn't check mergePoint"
+(ORL x:(MOVWload [i] {s} p mem) (SHLLconst [16] (MOVWload [i] {s} p mem))) => @x.Block (MOVWload [i] {s} p mem) // want "the match also includes the load AMD64MOVWload"
+
+// Arg must be in the entry block.
+(MOVQf2i <t> (Arg <u> [off] {sym})) && t.Size() == u.Size() => @b.Func.Entry (Arg <t> [off] {sym})
