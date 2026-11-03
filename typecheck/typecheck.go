@@ -220,9 +220,14 @@ func generatedFile(ssaDir, name string) (string, error) {
 	if p := filepath.Join(ssaDir, base); exists(p) {
 		return p, nil
 	}
-	matches, _ := filepath.Glob(filepath.Join(ssaDir, "rewrite", "*", base))
-	if len(matches) == 1 {
-		return matches[0], nil
+	for _, dir := range []string{
+		filepath.Join(ssaDir, "rewrite"),
+		filepath.Join(ssaDir, "..", "ssarewrite"), // 2026, briefly
+	} {
+		matches, _ := filepath.Glob(filepath.Join(dir, "*", base))
+		if len(matches) == 1 {
+			return matches[0], nil
+		}
 	}
 	return "", fmt.Errorf("no generated rewrite code %s in %s", base, ssaDir)
 }
