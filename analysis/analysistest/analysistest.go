@@ -18,9 +18,8 @@ import (
 	"github.com/josharian/unruly/rules"
 )
 
-// Tables returns the op tables of the Go tree that tests run against:
-// $UNRULY_GOROOT if set, else $HOME/go/tip if it exists, else
-// `go env GOROOT`. It skips the test if there is none.
+// Tables returns the op tables of the Go tree that tests run against,
+// $UNRULY_GOROOT.
 func Tables(t testing.TB) *ops.Tables {
 	t.Helper()
 	tables, err := ops.Load(testenv.GenDir(t))
@@ -163,7 +162,7 @@ func parseWant(line string) ([]*regexp.Regexp, error) {
 //
 //	go test -v -run Survey ./analyzers/myanalyzer
 //
-// Set UNRULY_GOROOT to survey a different tree. Parse errors fail the test.
+// It surveys $UNRULY_GOROOT. Parse errors fail the test.
 func Survey(t *testing.T, a *analysis.Analyzer) []analysis.Diagnostic {
 	t.Helper()
 	c, err := rules.Load(testenv.GenDir(t))
@@ -221,8 +220,7 @@ type Want struct {
 }
 
 // RunRevision applies a to the rules at revision rev of the Go repository
-// (from testenv: $UNRULY_GOREPO, else $HOME/go/tip; the test is skipped if it
-// does not exist), using that revision's own op tables, and checks wants.
+// $UNRULY_GOROOT, using that revision's own op tables, and checks wants.
 // It returns the diagnostics. Parse errors fail the test.
 //
 // The repository is only read; the revision is extracted to the user cache

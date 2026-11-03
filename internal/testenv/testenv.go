@@ -1,39 +1,31 @@
-// Package testenv locates the Go trees that tests run against.
+// Package testenv locates the Go tree that tests run against.
 package testenv
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/josharian/unruly/ops"
 )
 
-// GoRoot returns the Go tree whose op tables and rules tests use:
-// $UNRULY_GOROOT if set, else $HOME/go/tip if it exists, else
-// `go env GOROOT`. It skips the test if none has an SSA _gen directory.
+// GoRoot returns $UNRULY_GOROOT, the Go checkout whose op tables and rules
+// tests use. It fails the test if that is unset or not a Go source tree.
+//
+// There is deliberately no default: fixtures resolve ops against this tree,
+// and historical tests extract revisions from its git repository, so a
+// silently chosen tree (such as an older installed Go) would give confusing
+// results.
 func GoRoot(t testing.TB) string {
 	t.Helper()
-	var candidates []string
-	if r := os.Getenv("UNRULY_GOROOT"); r != "" {
-		candidates = []string{r}
-	} else {
-		if home, err := os.UserHomeDir(); err == nil {
-			candidates = append(candidates, filepath.Join(home, "go", "tip"))
-		}
-		if out, err := exec.Command("go", "env", "GOROOT").Output(); err == nil {
-			candidates = append(candidates, strings.TrimSpace(string(out)))
-		}
+	root := os.Getenv("UNRULY_GOROOT")
+	if root == "" {
+		t.Fatal("set UNRULY_GOROOT to a git checkout of Go tip, e.g. UNRULY_GOROOT=~/go go test ./...")
 	}
-	for _, c := range candidates {
-		if _, err := ops.FindGenDir(c); err == nil {
-			return c
-		}
+	if _, err := os.Stat(filepath.Join(root, "src", "cmd", "compile")); err != nil {
+		t.Fatalf("UNRULY_GOROOT=%s is not a Go source tree (want a directory containing src/cmd/compile)", root)
 	}
-	t.Skipf("no Go tree with an SSA _gen directory among %q", candidates)
-	return ""
+	return root
 }
 
 // GenDir returns the _gen directory of GoRoot.
@@ -46,21 +38,13 @@ func GenDir(t testing.TB) string {
 	return dir
 }
 
-// GoRepo returns a Go git repository for tests of historical revisions:
-// $UNRULY_GOREPO if set, else $HOME/go/tip. It skips the test if that is
-// not a git repository.
+// GoRepo returns GoRoot, for tests of historical revisions.
+// It fails the test if GoRoot is not a git repository.
 func GoRepo(t testing.TB) string {
 	t.Helper()
-	repo := os.Getenv("UNRULY_GOREPO")
-	if repo == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			t.Skip("no home directory")
-		}
-		repo = filepath.Join(home, "go", "tip")
+	root := GoRoot(t)
+	if _, err := os.Stat(filepath.Join(root, ".git")); err != nil {
+		t.Fatalf("UNRULY_GOROOT=%s is not a git checkout; historical tests need one", root)
 	}
-	if _, err := os.Stat(filepath.Join(repo, ".git")); err != nil {
-		t.Skipf("no Go git repository at %s (set UNRULY_GOREPO)", repo)
-	}
-	return repo
+	return root
 }

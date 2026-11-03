@@ -2,11 +2,12 @@
 //
 // Usage:
 //
-//	unruly [flags] [path]
+//	unruly [flags] path
 //
-// Path is a Go root or an SSA _gen directory; it defaults to `go env GOROOT`.
-// With -rev, path must be a Go git repository, and unruly analyzes the given
-// revision instead of the working tree.
+// Path is a Go source tree (GOROOT), such as a checkout of go.googlesource.com/go.
+// It is required, so that you always know which compiler's rules you are
+// analyzing. With -rev, path must be a Go git repository, and unruly analyzes
+// the given revision instead of the working tree.
 //
 // Unruly prints one line per finding, "file:line: analyzer: message".
 // It exits with status 1 if there are findings, and 2 if there are errors,
@@ -17,7 +18,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"regexp"
 	"slices"
 	"strings"
@@ -38,7 +38,7 @@ var (
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: unruly [flags] [goroot | _gen dir | git repo with -rev]\n")
+		fmt.Fprintf(os.Stderr, "usage: unruly [flags] path/to/go\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -58,24 +58,17 @@ func run() int {
 		}
 		return 0
 	}
-	if flag.NArg() > 1 {
+	if flag.NArg() != 1 {
+		fmt.Fprintf(os.Stderr, "unruly: need exactly one Go source tree to analyze, e.g. unruly ~/go\n")
 		flag.Usage()
 		return 2
 	}
 
 	path := flag.Arg(0)
-	if path == "" {
-		out, err := exec.Command("go", "env", "GOROOT").Output()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "go env GOROOT: %v\n", err)
-			return 2
-		}
-		path = strings.TrimSpace(string(out))
-	}
 	if *revFlag != "" {
 		path, err = gitrev.GenDir(path, *revFlag)
 	} else {
-		path, err = ops.FindGenDir(path)
+		path, err = genDir(path)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -149,4 +142,15 @@ func selectSets(c *rules.Corpus, list string) ([]*rules.RuleSet, error) {
 		}
 	}
 	return sets, nil
+}
+
+// genDir returns the SSA rules directory of the Go source tree root.
+// Some analyzers read compiler sources outside that directory,
+// so a bare copy of it is not enough.
+func genDir(root string) (string, error) {
+	dir, err := ops.FindGenDir(root)
+	if err != nil || dir == root {
+		return "", fmt.Errorf("%s is not a Go source tree (want a directory containing src/cmd/compile)", root)
+	}
+	return dir, nil
 }
