@@ -1,0 +1,70 @@
+// Fixtures for difftest. Wrong rules are historical bugs, in typed syntax,
+// or variants of historical or current bugs.
+
+// c6118af558: (-0) + (+0) is +0.
+(Add64F x (Const64F [0])) => x // want `\(Add64F x=-0.0 \(Const64F \[0\]\)\) is 0, but its rewrite x is -0.0`
+
+// (Const64F [0]) also matches -0.0, and x - (-0) is x + 0.
+(Sub64F x (Const64F [0])) => x // want `is 0, but its rewrite x is -0.0`
+
+// 1739657513: the combined shift amount can wrap.
+(Rsh64Ux64 (Rsh64Ux64 x (Const64 [c])) (Const64 [d])) && uint64(c) < 64 => (Rsh64Ux64 x (Const64 <typ.UInt64> [c+d])) // want `but its rewrite`
+
+// 7fc5621991: shift counts are unsigned.
+(Lsh32x64 (Lsh32x64 x (Const64 [c])) (Const64 [d])) && c < 32 && d < 32 => (Lsh32x64 x (Const64 <typ.UInt64> [c+d])) // want `but its rewrite`
+
+// 9b8742f2e7: converting an out-of-range float is machine-dependent.
+(Cvt64Fto64 (Const64F [c])) => (Const64 [int64(c)]) // want `host-dependent: converting`
+
+// Like 6c64b6db68's ARM64 folds: folding a division by zero crashes the
+// compiler.
+(Div32 (Const32 [c]) (Const32 [d])) => (Const32 [c/d]) // want `integer divide by zero`
+
+// 83e288f3db: folding inf + -inf creates a NaN constant.
+(Add32F (Const32F [c]) (Const32F [d])) => (Const32F [c+d]) // want `NaN`
+
+// A bounded shift must be in range.
+(Lsh16x64 x (Const64 [c])) && c >= 0 => (Lsh16x64 [true] x (Const64 <typ.UInt64> [c])) // want `outside its domain`
+
+// Correct rules.
+(Add64 (Const64 [c]) (Const64 [d])) => (Const64 [c+d])
+(Neg32 (Neg32 x)) => x
+(Rsh8Ux64 (Rsh8Ux64 x (Const64 [c])) (Const64 [d])) && !uaddOvf(c, d) => (Rsh8Ux64 x (Const64 <typ.UInt64> [c+d]))
+(Div16 (Const16 [c]) (Const16 [d])) && d != 0 => (Const16 [c/d])
+(Cvt32Fto32 (Const32F [c])) && c >= -1<<31 && c < 1<<31 => (Const32 [int32(c)])
+(Mul64 x (Const64 [c])) && ssa.IsPowerOfTwo(c) => (Lsh64x64 x (Const64 <typ.UInt64> [ssa.Log64u(uint64(c))]))
+(Eq8 x x) => (ConstBool [true])
+(Sub16 (Add16 x y) x) => y
+(Less32U x (Const32 [0])) => (ConstBool [false])
+
+// From generic.rules at tip: shift counts are unsigned, but c < e
+// compares them as signed, so x>>(1<<64-1) (that is, x>>63) becomes x<<2.
+(Lsh64x64 (And64 (Rsh(64|64U)x64 <t> x (Const64 <t2> [c])) (Const64 [d])) (Const64 [e])) && c < e =>  (And64 (Lsh64x64 <t> x (Const64 <t2> [e-c])) (Const64 <t> [d<<e])) // want `\(Lsh64x64 \(And64 \(Rsh64x64 x=-1 \(Const64 \[-1\]\)\) \(Const64 \[1\]\)\) \(Const64 \[[01]\]\)\) is [12], but its rewrite .* is 0`
+
+// 63a72fd447: Neg32F negates a float32.
+(Div64F x (Const64F [-1])) => (Neg32F x) // want `ill-typed: Neg32F: arg0 is a float64, want float32`
+
+// af86083812: Cvt32Fto64 produces 64 bits.
+(Cvt32Fto64 (Const32F [c])) && c >= -1<<31 && c < 1<<31 => (Const32 [int32(c)]) // want `is a 64-bit integer, but its rewrite \(Const32 .*\) is a 32-bit integer`
+
+// Pointers.
+(EqPtr (Addr {x} _) (Addr {y} _)) => (ConstBool [true]) // want `\(EqPtr \(Addr \{global\d\} .*\) \(Addr \{global\d\} .*\)\) is false, but its rewrite \(ConstBool \[true\]\) is true`
+(NeqPtr (OffPtr [o1] p1) (OffPtr [o2] p2)) && ssa.IsSamePtr(p1, p2) => (ConstBool [o1 == o2]) // want `but its rewrite`
+(NeqPtr (OffPtr [o1] p1) p2) => (ConstBool [o1 != 0]) // want `but its rewrite`
+(EqPtr (OffPtr [o1] p1) (OffPtr [o2] p2)) && ssa.IsSamePtr(p1, p2) => (ConstBool [o1 == o2])
+(NeqPtr (AddPtr p1 o1) p2) && ssa.IsSamePtr(p1, p2) => (IsNonNil o1)
+(EqPtr (OffPtr [o1] p1) p2) && ssa.IsSamePtr(p1, p2) => (ConstBool [o1 != 0]) // want `\(EqPtr \(OffPtr \[0\] p1=.*\) p1\) is true, but its rewrite \(ConstBool\) is false`
+(IsNonNil (LocalAddr _ _)) => (ConstBool [true])
+(EqPtr (LocalAddr _ _) (Addr _)) => (ConstBool [false])
+(OffPtr (OffPtr p [y]) [x]) => (OffPtr p [x+y])
+
+// Marking a constant shift bounded changes only its aux, so the Lsh64x64
+// rule below still matches after it; its bug is not latent.
+(Rsh64Ux64 [false] x con:(Const64 [c])) && 0 < c && c < 64 => (Rsh64Ux64 [true] x con)
+(Lsh64x64 i:(Rsh64Ux64 x (Const64 [c])) (Const64 [c])) && c >= 0 && c < 64 && i.Uses == 1 => (And64 x (Const64 <v.Type> [int64(-2) << c])) // want `^\(Lsh64x64 \(Rsh64Ux64 \[true\] x=.* is .*, but its rewrite \(And64 .*\) is `
+
+// A shift by 64 or more folds to 0, after which the rotate rule below no
+// longer matches: its bug is latent.
+(Lsh64x64 _ (Const64 [c])) && uint64(c) >= 64 => (Const64 [0])
+(Rsh64Ux64 _ (Const64 [c])) && uint64(c) >= 64 => (Const64 [0])
+(Or64 (Lsh64x64 x (Const64 [c])) (Rsh64Ux64 x (Const64 [d]))) && c < 64 && d == 64-c => (RotateLeft64 x (Const64 <typ.UInt64> [c])) // want `^latent: .* is 0, but its rewrite \(RotateLeft64 .*\[needs .*, which generic.rules:\d+ rewrites`

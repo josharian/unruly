@@ -1,0 +1,21 @@
+// fa54bf16e0: hi>>(s-32) matters only if s >= 32 as an unsigned number,
+// but ^Signmask(s-32) tests s-32 >= 0 as a signed one.
+(Rsh64x32 (Int64Make hi lo) s) => // want `but its rewrite`
+	(Int64Make
+		(Rsh32x32 <typ.UInt32> hi s)
+		(Or32 <typ.UInt32>
+			(Or32 <typ.UInt32>
+				(Rsh32Ux32 <typ.UInt32> lo s)
+				(Lsh32x32 <typ.UInt32> hi (Sub32 <typ.UInt32> (Const32 <typ.UInt32> [32]) s)))
+			(And32 <typ.UInt32>
+				(Rsh32x32 <typ.UInt32> hi (Sub32 <typ.UInt32> s (Const32 <typ.UInt32> [32])))
+				(Com32 <typ.UInt32> (Signmask (Sub32 <typ.UInt32> s (Const32 <typ.UInt32> [32])))))))
+
+// A shift by a 64-bit amount (hi, lo) is a shift by at least 1<<32 if hi
+// is non-zero, so the mask must test hi != 0, not hi < 0.
+(Rsh64Ux64 x (Int64Make hi lo)) && hi.Op != ssaop.OpConst32 => (Rsh64Ux32 x (Or32 <typ.UInt32> (Signmask hi) lo)) // want `but its rewrite`
+
+// Correct.
+(Lsh64x64 x (Int64Make hi lo)) && hi.Op != ssaop.OpConst32 => (Lsh64x32 x (Or32 <typ.UInt32> (Zeromask hi) lo))
+(Int64Hi (Int64Make hi _)) => hi
+(Add64 x y) => (Int64Make (Add32withcarry <typ.Int32> (Int64Hi x) (Int64Hi y) (Select1 <types.TypeFlags> (Add32carry (Int64Lo x) (Int64Lo y)))) (Select0 <typ.UInt32> (Add32carry (Int64Lo x) (Int64Lo y))))
