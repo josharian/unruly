@@ -1,0 +1,15 @@
+(CMP x y) && ssa.CanonLessThan(x,y) => (InvertFlags (CMP y x))
+
+// Correct: ISEL [a] x y f is (CR bit a&3) ? x : y, swapped for a > 3.
+(ISEL [2] x _ (FlagEQ)) => x
+(ISEL [4] x _ (Flag(EQ|GT))) => x
+
+// Wrong: ISEL [5] is LE ? arg0 : arg1.
+(ISEL [5] y _ (FlagGT)) => y // want `the match \(ISEL \[5\]\) yields ISEL's arg 1 but the result yields y \(ISEL's arg 0\)`
+
+// Wrong: InvertFlags swaps LT and GT; it doesn't negate EQ.
+(SETBC [n] (InvertFlags bool)) => (SETBCR [n] bool) // want `for n = 0, bool = \(CMP 0 0\)`
+
+// An earlier rule handles n = 0, so the counterexample avoids it.
+(SETBCR [0] (InvertFlags bool)) => (SETBCR [1] bool)
+(SETBCR [n] (InvertFlags bool)) => (SETBC [n] bool) // want `for n = 1, .* \(earlier rules, PPC64.rules:14, handle n = 0\)`

@@ -1,0 +1,11 @@
+// Correct.
+(CMP x y) && ssa.CanonLessThan(x,y) => (InvertFlags (CMP y x))
+(LOCGR {c} x y (InvertFlags cmp)) => (LOCGR {c.ReverseComparison()} x y cmp)
+(CMPconst (MOVDconst [x]) [y]) && x<int64(y) => (FlagLT)
+
+// Wrong: CMPUconst zero-extends its immediate, so CMPWUconst of the low
+// half of a sign-extended value differs.
+(CMPUconst x:(MOVHreg _) [c]) => (CMPWUconst x [c]) // want `condition CC2 \(greater\) holds for the match's flags`
+
+// Wrong: the comparison of a uint64 with the zero-extended uint32 immediate.
+(CMPUconst (MOVDconst [x]) [y]) && uint64(x)==uint64(y) => (FlagEQ) // want `for y = -1, x = -1`

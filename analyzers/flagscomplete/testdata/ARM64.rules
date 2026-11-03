@@ -1,0 +1,12 @@
+// CSETM appears only in a result, with a flags variable taken from CSEL,
+// which may be InvertFlags or constant. Nothing absorbs either into CSETM.
+(CMP x y) && ssa.CanonLessThan(x,y) => (InvertFlags (CMP y x))
+(CMPconst (MOVDconst [x]) [y]) => (FlagConstant [ssa.SubFlags64(x,y)])
+(CSEL [cc] x y (InvertFlags cmp)) => (CSEL [arm64Invert(cc)] x y cmp)
+(CSEL [cc] x _ flag) && ccARM64Eval(cc, flag) > 0 => x
+(CSEL [cc] (MOVDconst [-1]) (MOVDconst [0]) flag) => (CSETM [cc] flag) // want `CSETM's flags may be InvertFlags \(flag is CSEL's flags, which may be InvertFlags` `CSETM's flags may be FlagConstant \(flag is CSEL's flags, which may be constant\)`
+
+// A Go expression in a flags position may be any flags value. FCSELD
+// folds constants but doesn't absorb InvertFlags.
+(FCSELD [cc] x _ (FlagConstant [fc])) => x
+(CondSelect x y boolval) && ssa.FlagArg(boolval) != nil => (FCSELD [boolval.Op] x y ssa.FlagArg(boolval)) // want `FCSELD's flags may be InvertFlags \(it is ssa.FlagArg\(boolval\), which may be any flags value, including InvertFlags \(ARM64.rules:3\)\)`

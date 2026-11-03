@@ -1,0 +1,23 @@
+// Correct lowering and absorption.
+(CMPQ x y) && ssa.CanonLessThan(x,y) => (InvertFlags (CMPQ y x))
+(Less64 x y) => (SETL (CMPQ x y))
+(Less64U x y) => (SETB (CMPQ x y))
+(Less64F x y) => (SETGF (UCOMISD y x))
+(SETL (InvertFlags x)) => (SETG x)
+(If (SETGF cmp) yes no) => (UGT cmp yes no)
+(CMPQconst (MOVQconst [x]) [y]) && x<int64(y) && uint64(x)<uint64(int64(y)) => (FlagLT_ULT)
+
+// Wrong: signed and unsigned swapped.
+(Leq64 x y) => (SETBE (CMPQ x y)) // want `for x = 0, y = -1: the match \(Leq64\) yields 0 but the result \(SETBE\) yields 1`
+
+// Wrong: InvertFlags swaps the operands; it doesn't negate.
+(SETG (InvertFlags x)) => (SETLE x) // want `for x = \(CMP`
+
+// Wrong: float > maps to UGT, not UGE.
+(If (SETGEF cmp) yes no) => (UGT cmp yes no) // want `cmp = \(UCOMISD 1 1\): the match \(If\) branches to yes but the result \(UGT, which branches on HI\) to no`
+
+// Wrong: TESTL sets the sign flag from bit 31.
+(TESTQ x y) && ssa.ZeroUpper32Bits(x) => (TESTL x y) // want `condition LT holds for the result's flags \(TESTL`
+
+// Wrong: CMOVQEQ x y f is f==EQ ? y : x.
+(CMOVQEQ x _ (FlagEQ)) => x // want `the match \(CMOVQEQ\) yields CMOVQEQ's arg 1 but the result yields x \(CMOVQEQ's arg 0\)`

@@ -1,0 +1,11 @@
+// Absorption is per auxint: SETBC's auxints are 0 and 2, so ISEL [a]
+// needs InvertFlags absorbed for both.
+(CMP x y) && ssa.CanonLessThan(x,y) => (InvertFlags (CMP y x))
+(LessThan cmp) => (SETBC [0] cmp)
+(Equal cmp) => (SETBC [2] cmp)
+(SETBC [0] (InvertFlags bool)) => (SETBC [1] bool)
+(SETBC [1] (InvertFlags bool)) => (SETBC [0] bool)
+(SETBC [2] (InvertFlags bool)) => (SETBC [2] bool)
+(ISEL [n] x y (InvertFlags bool)) && n%4 == 0 => (ISEL [n+1] x y bool)
+(ISEL [n] x y (InvertFlags bool)) && n%4 == 1 => (ISEL [n-1] x y bool)
+(CondSelect x y (SETBC [a] cmp)) => (ISEL [a] x y cmp) // want `ISEL \[a\] \(with a = 2\)'s flags may be InvertFlags \(cmp is SETBC's flags.*no rule absorbs InvertFlags into ISEL \[2\]`

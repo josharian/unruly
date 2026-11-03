@@ -1,0 +1,15 @@
+// Correct.
+(CMP x y) && ssa.CanonLessThan(x,y) => (InvertFlags (CMP y x))
+(LT (InvertFlags cmp) yes no) => (GT cmp yes no)
+(EQ (CMP x z:(NEG y)) yes no) && z.Uses == 1 => (EQ (CMN x y) yes no)
+(CSEL [cc] x y (InvertFlags cmp)) => (CSEL [arm64Invert(cc)] x y cmp)
+
+// Wrong: CMP x -y and CMN x y differ in V when y is the minimum integer.
+(LE (CMP x z:(NEG y)) yes no) && z.Uses == 1 => (LE (CMN x y) yes no) // want `y = -9223372036854775808`
+
+// Wrong: LTnoov tests N alone, which swapping the operands of an
+// overflowing subtraction doesn't flip.
+(LTnoov (InvertFlags cmp) yes no) => (GTnoov cmp yes no) // want `cmp = \(CMP`
+
+// Wrong: CSINV's second operand is inverted bitwise, but Not is boolean.
+(CSINV [cc] _ y flag) && ccARM64Eval(cc, flag) < 0 => (Not y) // want `the match \(CSINV\) yields -1 but the result \(Not\) yields 1`

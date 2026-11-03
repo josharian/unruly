@@ -1,0 +1,17 @@
+// CMPQ can become InvertFlags, and SETL absorbs it.
+(Less64 x y) => (SETL (CMPQ x y))
+(CMPQ x y) && ssa.CanonLessThan(x,y) => (InvertFlags (CMPQ y x))
+(SETL (InvertFlags x)) => (SETG x)
+
+// SETO doesn't absorb InvertFlags.
+(Neq64 x y) => (SETO (CMPQ x y)) // want `SETO's flags may be InvertFlags \(CMPQ becomes InvertFlags by AMD64.rules:3\), but no rule absorbs InvertFlags into SETO`
+
+// A compare of constants folds to a flag constant, which SETG folds but
+// SETGE doesn't.
+(CMPQconst (MOVQconst [x]) [y]) && x==int64(y) => (FlagEQ)
+(SETG (FlagEQ)) => (MOVLconst [0])
+(Leq64 x y) => (SETGE (CMPQconst x [0])) // want `SETGE's flags may be FlagEQ \(CMPQconst becomes FlagEQ by AMD64.rules:11\), but no rule folds them into SETGE`
+
+// A flags variable taken from a consumer that folds constants may be one.
+(If (SETG cmp) yes no) => (GT cmp yes no) // want `GT's flags may be FlagEQ \(cmp is SETG's flags, which may be constant\)`
+(GT (InvertFlags cmp) yes no) => (LT cmp yes no)
