@@ -47,13 +47,22 @@ var memo struct {
 // (requiring the go command), which takes a few seconds. The result is
 // cached in the user cache directory, keyed by the content of those sources.
 func Load(dir string) (*Tables, error) {
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
 	key, err := contentKey(dir)
 	if err != nil {
 		return nil, err
 	}
+	// Tables.Dir locates the rest of the tree (codegen, rewrite helpers),
+	// which can differ between trees with identical _gen sources.
+	// So the in-memory cache, unlike the content-keyed disk cache,
+	// is per directory.
+	memoKey := key + "\x00" + dir
 	memo.Lock()
 	defer memo.Unlock()
-	if t := memo.m[key]; t != nil {
+	if t := memo.m[memoKey]; t != nil {
 		return t, nil
 	}
 
@@ -80,7 +89,7 @@ func Load(dir string) (*Tables, error) {
 	if memo.m == nil {
 		memo.m = make(map[string]*Tables)
 	}
-	memo.m[key] = t
+	memo.m[memoKey] = t
 	return t, nil
 }
 
@@ -111,7 +120,7 @@ func contentKey(dir string) (string, error) {
 		return "", err
 	}
 	h := sha256.New()
-	fmt.Fprintf(h, "%s\n", dumpVersion)
+	h.Write(dumpSource)
 	for _, name := range names {
 		b, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {

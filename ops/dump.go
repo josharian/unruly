@@ -2,6 +2,7 @@ package ops
 
 import (
 	"bytes"
+	_ "embed"
 	"errors"
 	"fmt"
 	"go/ast"
@@ -18,9 +19,11 @@ import (
 	"text/template"
 )
 
-// dumpVersion is part of the cache key. Bump it whenever the dump program
-// or the JSON it produces changes.
-const dumpVersion = "unruly-opdump-3"
+// dumpSource is part of the disk cache key,
+// so that changes to the dump program invalidate cached dumps.
+//
+//go:embed dump.go
+var dumpSource []byte
 
 // dump builds the _gen package in dir together with a generated main
 // function that dumps the registered op tables as JSON.
@@ -318,6 +321,7 @@ var dumpTemplate = template.Must(template.New("dump").Parse(`// Code generated b
 package main
 
 import (
+	_ "embed"
 	unrulyjson "encoding/json"
 	unrulyos "os"
 	unrulyreflect "reflect"
