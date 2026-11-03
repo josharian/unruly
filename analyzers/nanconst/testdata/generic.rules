@@ -1,0 +1,32 @@
+// Float folds that can make NaN need a guard.
+(Add64F (Const64F [c]) (Const64F [d])) => (Const64F [c+d]) // want `Const64F aux c \+ d is NaN for c=\+Inf, d=-Inf; guard with !math.IsNaN\(c \+ d\)`
+(Add32F (Const32F [c]) (Const32F [d])) && c+d == c+d => (Const32F [c+d])
+(Sub64F (Const64F [c]) (Const64F [d])) && !math.IsNaN(c-d) => (Const64F [c-d])
+(Sub32F (Const32F [c]) (Const32F [d])) && !math.IsNaN(float64(c+d)) => (Const32F [c-d]) // want `c - d is NaN for c=d=\+Inf`
+(Mul64F (Const64F [c]) (Const64F [d])) && c*d == c*c => (Const64F [c*d]) // want `c \* d is NaN for c=0, d=\+Inf`
+(Div64F (Const64F [c]) (Const64F [d])) && d != 0 => (Const64F [c/d]) // want `c / d is NaN for c=d=0`
+(Div32F x (Const32F <t> [c])) && ssa.ReciprocalExact32(c) => (Mul32F x (Const32F <t> [1/c]))
+(Mul32F x (Const32F [c])) && c > 2 => (Mul32F x (Const32F <typ.Float32> [c*2-1]))
+(Sqrt (Const64F [c])) => (Const64F [math.Sqrt(c)]) // want `math.Sqrt\(c\) is NaN for c=-1`
+(Sqrt (Const64F [c])) && c >= 0 => (Const64F [math.Sqrt(c)])
+(Floor (Const64F [c])) => (Const64F [math.Floor(c)])
+(Neg64F (Const64F [c])) && c != 0 => (Const64F [-c])
+(Neg32F x) => (Mul32F x (Const32F <typ.Float32> [float32(math.Copysign(1, -1))]))
+(Cvt64Fto32F (Const64F [c])) => (Const32F [float32(c)])
+(Cvt32Fto64F (Const32F [c])) => (Const64F [float64(c)])
+
+// Bit reinterpretation.
+(Load <t1> p1 (Store {t2} p2 (Const64 [x]) _)) && ssa.IsSamePtr(p1,p2) && t2.Size() == 8 && ssa.Is64BitFloat(t1) => (Const64F [math.Float64frombits(uint64(x))]) // want `Const64F aux math.Float64frombits\(uint64\(x\)\) is NaN for x=0x7ff8000000000000`
+(Load <t1> p1 (Store {t2} p2 (Const32 [x]) _)) && ssa.IsSamePtr(p1,p2) && t2.Size() == 4 && ssa.Is32BitFloat(t1) && !math.IsNaN(float64(math.Float32frombits(uint32(x)))) => (Const32F [math.Float32frombits(uint32(x))])
+(Load <t1> p1 (Store {t2} p2 (Const32 [x]) _)) && ssa.IsSamePtr(p1,p2) && t2.Size() == 4 && ssa.Is64BitFloat(t1) => (Const64F [float64(math.Float32frombits(uint32(x)))]) // want `float64\(math.Float32frombits\(uint32\(x\)\)\) quiets a signaling NaN` `is NaN for x=0x7fc00000`
+
+// Float-to-integer conversions of out-of-range values are host-dependent.
+(Cvt64Fto32 (Const64F [c])) => (Const32 [int32(c)]) // want `int32\(c\) is implementation-defined when c is NaN, infinite, or out of range`
+(Cvt64Fto64 (Const64F [c])) && c >= -1<<63 && c < 1<<63 => (Const64 [int64(c)])
+(Cvt32Fto32 (Const32F [c])) && -1<<31 <= c && 1<<31 > c => (Const32 [int32(c)])
+(Cvt32Fto64 (Const32F [c])) && c < 1<<63 => (Const64 [int64(c)]) // want `int64\(c\) is implementation-defined`
+// The bounds must lie within the integer type's range.
+(Cvt64Fto32 (Const64F [c])) && c >= 0 && c < 1e30 => (Const32 [int32(c)]) // want `int32\(c\) is implementation-defined`
+(Cvt64Fto32U (Const64F [c])) && c >= -1 && c < 1 => (Const32 [int32(uint32(c))]) // want `uint32\(c\) is implementation-defined`
+(Cvt64Fto64U (Const64F [c])) && c > -1 && c <= 1<<64 - 2048 => (Const64 [int64(uint64(c))])
+(Cvt32Fto32U (Const32F [c])) && c > -1 && c <= 1<<32 => (Const32 [int32(uint32(c))]) // want `uint32\(c\) is implementation-defined`

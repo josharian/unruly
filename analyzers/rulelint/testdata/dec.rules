@@ -1,0 +1,7 @@
+// A fixed arg list on a variadic op constrains the arg count.
+(IMake _typ (StructMake val)) => ssa.ImakeOfStructMake(v) // want `StructMake is variadic, so \(StructMake val\) matches only StructMake with exactly 1 args, but val is otherwise unused; did you mean \(StructMake ___\)\?`
+(StructMake x) && x.Type.IsPtrShaped() => x
+
+// Direct-interface aggregates are keyed on pointer shape.
+(ArrayMake1 x) && x.Type.IsPtr() => x // want `x.Type.IsPtr\(\) misses maps, chans, and funcs`
+(StructSelect [0] x) && x.Type.IsPtrShaped() => x

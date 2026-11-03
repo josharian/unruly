@@ -1,0 +1,6 @@
+// A zero-sized aggregate must be (Empty).
+(Load <t> ptr mem) && t.IsArray() && t.NumElem() == 1 && ssa.CanSSA(t) => (ArrayMake1 (Load <t.Elem()> ptr mem)) // want `ArrayMake1 of the rewritten value's type needs a t.Size\(\) > 0 condition`
+(Load <t> ptr mem) && t.IsArray() && t.NumElem() == 1 && t.Size() > 0 && ssa.CanSSA(t) => (ArrayMake1 (Load <t.Elem()> ptr mem))
+
+// The race-cleanup rules match calls of a particular shape.
+(SelectN [0] call:(StaticLECall {sym} a x)) && ssa.Clobber(call) => x

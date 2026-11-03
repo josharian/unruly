@@ -1,0 +1,4 @@
+// A remainder mod k is in (-k, k).
+(MOVDload [off1] {sym} (ADDconst [off2] ptr) mem) && ssa.Is32Bit(int64(off1)+off2) && ((int64(off1)+off2)%2 == 8 || int64(off1)+off2 < 256) => (MOVDload [off1+int32(off2)] {sym} ptr mem) // want `\(int64\(off1\) \+ off2\) % 2 == 8 is always false: a remainder mod 2 is never 8`
+(MOVWload [off1] {sym} (ADDconst [off2] ptr) mem) && ssa.Is32Bit(int64(off1)+off2) && (int64(off1)+off2)%4 == 0 => (MOVWload [off1+int32(off2)] {sym} ptr mem)
+(MOVHload [off1] {sym} (ADDconst [off2] ptr) mem) && ssa.Is32Bit(int64(off1)+off2) && off2%8 != -8 => (MOVHload [off1+int32(off2)] {sym} ptr mem) // want `off2 % 8 != -8 is always true`

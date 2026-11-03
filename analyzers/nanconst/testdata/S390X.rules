@@ -1,0 +1,2 @@
+(OR (RISBGZ (LGDR x) {r}) (MOVDconst [c])) && c >= 0 && r == s390x.NewRotateParams(0, 0, 0) => (LGDR (CPSDR <x.Type> (FMOVDconst <x.Type> [math.Float64frombits(uint64(c))]) x)) // want `FMOVDconst aux math.Float64frombits\(uint64\(c\)\) is NaN for c=0x7ff8000000000000`
+(CPSDR y (FMOVDconst [c])) && !math.Signbit(c) => (LPDFR y)

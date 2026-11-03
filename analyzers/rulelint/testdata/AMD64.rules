@@ -1,0 +1,13 @@
+// &, &^, <<, >>, *, /, and % share a precedence in Go, unlike C.
+(BTRQconst [c] (ANDQconst [d] x)) => (ANDQconst [d &^ 1<<uint32(c)] x) // want `d &\^ 1 << uint32\(c\) means \(d &\^ 1\) << uint32\(c\)`
+(BTSQconst [c] (ANDQconst [d] x)) => (ANDQconst [d &^ (1<<uint32(c))] x)
+(SHRQconst [c] (ANDQconst [d] x)) && d & 0xff >> c == 0 => (MOVQconst [0]) // want `means \(d & 0xff\) >> c`
+(SHLQconst [c] (ANDQconst [d] x)) && d>>c & 1 == 0 => (SHLQconst [c] x)
+(SHLQconst [c] (ORQconst [d] x)) => (ORQconst [d << c * 8] (SHLQconst <typ.UInt64> [c] x)) // want `d << c \* 8 means \(d << c\) \* 8`
+(SHRQconst [c] (ORQconst [d] x)) && d>>6&1*63 == 0 => (SHRQconst [c] x)
+(SARQconst [c] (ORQconst [d] x)) && d * 2 << c == 0 => (SARQconst [c] x)
+
+// mergeSym's symbol usually comes from sym2.
+(MOVQload [off1] {sym1} (LEAQ [off2] {sym2} base) mem) && ssa.CanMergeSym(sym1, sym2) && !ssa.SymIsRO(sym1) => (MOVQload [off1+off2] {ssa.MergeSym(sym1, sym2)} base mem) // want `tests ssa.SymIsRO\(sym1\) on only one`
+(MOVLload [off1] {sym1} (LEAQ [off2] {sym2} base) mem) && ssa.CanMergeSym(sym1, sym2) && !ssa.SymIsRO(sym1) && !ssa.SymIsRO(sym2) => (MOVLload [off1+off2] {ssa.MergeSym(sym1, sym2)} base mem)
+(MOVWload [off1] {sym1} (LEAQ [off2] {sym2} base) mem) && ssa.CanMergeSym(sym1, sym2) && !ssa.SymIsRO(ssa.MergeSym(sym1, sym2)) => (MOVWload [off1+off2] {ssa.MergeSym(sym1, sym2)} base mem)

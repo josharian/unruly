@@ -1,0 +1,2 @@
+(F64Add (F64Const [x]) (F64Const [y])) => (F64Const [x + y]) // want `F64Const aux x \+ y is NaN for x=\+Inf, y=-Inf`
+(F64Mul (F64Const [x]) (F64Const [y])) && !math.IsNaN(x * y) => (F64Const [x * y])

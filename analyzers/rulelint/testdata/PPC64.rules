@@ -1,0 +1,15 @@
+// Size() is in bytes; a register value is at most 8. An always-true
+// condition matters when a later rule shows the rewrite needs one.
+(MOV(HZ|H)reg (S(R|RA)Wconst [c] x)) && x.Type.Size() <= 16 => (S(R|RA)Wconst [c] x) // want `x.Type.Size\(\) <= 16 is always true: the rule rewrites every \(MOVHZreg \(SRWconst \[c\] x\)\) to \(SRWconst \[c\] x\), but the same rewrite at PPC64.rules:9 holds only when c>=16 \(16 looks like a bit width\)` `every \(MOVHreg \(SRAWconst \[c\] x\)\) to \(SRAWconst \[c\] x\), but the same rewrite at PPC64.rules:10 holds only when c>=16`
+(MOVBZreg (SRWconst [d] y)) && 32 > y.Type.Size() => (SRWconst [d] y) // want `32 > y.Type.Size\(\) is always true: .* the same rewrite at PPC64.rules:11 holds only when c>=24`
+(MOVWZreg x:(SRWconst [c] _)) && x.Type.Size() == 32 => x // want `x.Type.Size\(\) == 32 is always false and the rule never fires; did 32 mean bits\?`
+// Without such evidence, an always-true condition may be harmless.
+(MOVWreg (SRAWconst [c] x)) && x.Type.Size() <= 32 => (SRAWconst [c] x)
+
+(MOVHZreg (SRWconst [c] x)) && c>=16 => (SRWconst [c] x)
+(MOVHreg (SRAWconst [c] x)) && c>=16 => (SRAWconst [c] x)
+(MOVBZreg (SRWconst [c] x)) && c>=24 => (SRWconst [c] x)
+
+// Sizes of bytes, or of values not in GP registers, are fine.
+(MOVWZreg (SRWconst [c] x)) && x.Type.Size() <= 4 => (SRWconst [c] x)
+(Load <t> ptr mem) && t.Size() == 16 => (FMOVDload ptr mem)
