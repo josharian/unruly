@@ -1,0 +1,31 @@
+// Signedness and width.
+(AddSaturatedInt8x16 ...) => (VPADDSB128 ...)
+(AddSaturatedUint8x16 ...) => (VPADDSB128 ...) // want `AddSaturatedUint8x16 lowers AddSaturated on unsigned 8-bit elements to VPADDSB, which takes signed 8-bit elements`
+(AddSaturatedUint16x8 ...) => (VPADDUSB128 ...) // want `on unsigned 16-bit elements to VPADDUSB, which takes unsigned 8-bit elements`
+(MinUint32x4 ...) => (VPMINUD128 ...)
+(ShiftAllRightUint32x4 ...) => (VPSRLD128 ...)
+(ShiftAllRightInt32x4 ...) => (VPSRLD128 ...) // want `to VPSRLD, which takes unsigned 32-bit elements`
+(SaturateToUint8Uint16x8 ...) => (VPMOVUSWB128_128 ...)
+(SaturateToUint8Int16x8 ...) => (VPMOVSWB128_128 ...) // want `promises unsigned 8-bit elements but lowers to VPMOVSWB, which produces signed 8-bit elements`
+(ConcatSaturateToUint16Int32x4 ...) => (VPACKSSDW128 ...) // want `promises unsigned 16-bit elements but lowers to VPACKSSDW, which produces signed 16-bit elements`
+(DotProductPairsSaturatedUint8x16 ...) => (VPMADDUBSW128 ...) // want `VPMADDUBSW128 is also the lowering of DotProductPairsInt16x8`
+(DotProductPairsInt16x8 ...) => (VPMADDUBSW128 ...) // want `on signed 16-bit elements to VPMADDUBSW, which takes unsigned 8-bit elements` `is also the lowering of DotProductPairsSaturatedUint8x16`
+(ConvertToUint32Float32x4 ...) => (VCVTTPS2UDQ128 ...)
+(ConvertToInt32Float32x4 ...) => (VCVTTPS2UDQ128 ...) // want `promises signed 32-bit elements but lowers to VCVTTPS2UDQ, which produces unsigned 32-bit elements`
+(GreaterUint8x64 x y) => (VPMOVMToVec8x64 (VPCMPUB512 [14] x y))
+(GreaterInt8x64 x y) => (VPMOVMToVec8x64 (VPCMPUB512 [14] x y)) // want `to VPCMPUB, which takes unsigned 8-bit elements`
+(ExtendToUint32Uint16x8 ...) => (VPMOVZXWD256 ...)
+(ExtendToInt32Int16x8 ...) => (VPMOVZXWD256 ...) // want `to VPMOVZXWD, which takes unsigned 16-bit elements`
+
+// Lane parity.
+(MulAddEvenSubOddFloat32x4 ...) => (VFMSUBADD213PS128 ...) // want `also the lowering of MulAddOddSubEven`
+(MulAddOddSubEvenFloat32x4 ...) => (VFMSUBADD213PS128 ...) // want `MulAddOddSubEvenFloat32x4 needs sub in even lanes, but VFMSUBADD213PS does add in even lanes and sub in odd ones; want VFMADDSUB` `also the lowering of MulAddEvenSubOdd`
+
+// Collisions.
+(SHA256Message1Uint32x4 ...) => (SHA256MSG1128 ...) // want `SHA256MSG1128 is also the lowering of SHA256Message2Uint32x4`
+(SHA256Message2Uint32x4 ...) => (SHA256MSG1128 ...) // want `SHA256MSG1128 is also the lowering of SHA256Message1Uint32x4`
+(AndInt8x16 ...) => (VPAND128 ...)
+(AndUint8x16 ...) => (VPAND128 ...)
+
+// Equality doesn't depend on signedness.
+(EqualUint8x64 x y) => (VPMOVMToVec8x64 (VPCMPB512 [0] x y))

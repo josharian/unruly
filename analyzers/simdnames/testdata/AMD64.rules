@@ -1,0 +1,11 @@
+// K-register widths.
+(VPAND128 (VPMOVMToVec8x16 x) (VPMOVMToVec8x16 y)) => (VPMOVMToVec8x16 (KANDW x y))
+(VPAND256 (VPMOVMToVec8x32 x) (VPMOVMToVec8x32 y)) => (VPMOVMToVec8x32 (KANDW x y)) // want `KANDW operates on 16 mask bits, but VPMOVMToVec8x32 has 32 lanes`
+(VPAND128 (VPMOVMToVec64x2 x) (VPMOVMToVec64x2 y)) => (VPMOVMToVec64x2 (KANDB x y))
+(Cvt16toMask8x16 <t> x) => (VPMOVMToVec8x16 <types.TypeVec128> (KMOVWk <t> x))
+(Cvt32toMask8x32 <t> x) => (VPMOVMToVec8x32 <types.TypeVec256> (KMOVWk <t> x)) // want `KMOVWk operates on 16 mask bits`
+(CvtMask8x64to64 x) => (KMOVDi (VPMOVVec8x64ToM <types.TypeMask> x)) // want `KMOVDi operates on 32 mask bits, but VPMOVVec8x64ToM has 64 lanes`
+
+// And-not operand order.
+(VPANDN128 (VPMOVMToVec8x16 x) (VPMOVMToVec8x16 y)) => (VPMOVMToVec8x16 (KANDNW y x))
+(VPANDN256 (VPMOVMToVec8x32 x) (VPMOVMToVec8x32 y)) => (VPMOVMToVec8x32 (KANDND x y)) // want `and-not operands swapped: VPANDN256 complements x, but KANDND \(which complements its arg1\) complements y`

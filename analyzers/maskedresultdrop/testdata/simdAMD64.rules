@@ -1,0 +1,18 @@
+// A zeroing op simplified to its input: wrong where the mask is false.
+(VPSLLWMasked128const [a] x mask) && a==0 => x // want `mask dropped: VPSLLWMasked128const zeroes the lanes where mask is false, but the result x keeps every lane`
+(VPSLLDMasked128const [a] x mask) && a==0 => (VMOVDQU32Masked128 x mask)
+(VPSLLQMasked128const [a] x mask) && a==0 => (VPSLLQ128const [a] x) // want `result \(VPSLLQ128const \[a\] x\) does not use it`
+
+// A merging op keeps dst where the mask is false.
+(VPSLLWMasked128constMerging dst [a] x mask) && a==0 => x // want `keeps dst dst in the lanes where mask is false`
+(VPSLLDMasked128constMerging dst [a] x mask) && a==0 => (VPBLENDMDMasked512 dst x mask)
+
+// The mask may be matched as a subterm.
+(VPADDDMasked512 x y (VPMOVVec32x16ToM m)) && false => (VPADDD512 x y) // want `mask dropped`
+(VPADDDMasked512 x y k:(VPMOVVec32x16ToM m)) => (VPADDDMasked512 x y k)
+
+// Load folding keeps the mask.
+(VPSLLWMasked128const [c] l:(VMOVDQUload128 {sym} [off] ptr mem) mask) && ssa.CanMergeLoad(v, l) && ssa.Clobber(l) => (VPSLLWMasked128constload {sym} [ssa.MakeValAndOff(int32(uint8(c)),off)] ptr mask mem)
+
+// Unmasked ops are not checked.
+(VPSLLW128const [a] x) && a==0 => x

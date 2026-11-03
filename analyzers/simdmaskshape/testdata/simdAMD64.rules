@@ -1,0 +1,33 @@
+// Generic lowerings. Their archsimd signatures give the machine ops'
+// output shapes: VPADDD writes Int32 elements, VPMADDWD Int32 elements from
+// Int16 inputs, VPMOVDB Int8x16 from Int32x4.
+(AddInt32x4 ...) => (VPADDD128 ...)
+(AddInt32x16 ...) => (VPADDD512 ...)
+(DotProductPairsInt16x8 ...) => (VPMADDWD128 ...)
+(DotProductPairsInt16x32 ...) => (VPMADDWD512 ...)
+(TruncToInt8Int32x4 ...) => (VPMOVDB128_128 ...)
+(AbsInt8x16 ...) => (VPABSB128 ...)
+
+// Lowering shapes.
+(AddInt64x2 ...) => (VPADDQ256 ...) // want `lowering shape: Int64x2.Add returns Int64x2 \(128 bits\), but VPADDQ256 produces Vec256`
+(EqualFloat32x16 x y) => (VPMOVMToVec32x16 (VCMPPS512 [0] x y))
+(EqualFloat64x8 x y) => (VPMOVMToVec32x16 (VCMPPD512 [0] x y)) // want `Float64x8.Equal returns Mask64x8, but .* VPMOVMToVec32x16, which produces a Mask32x16`
+(ExpandUint8x64 x mask) => (VPEXPANDBMasked512 x (VPMOVVec8x64ToM <types.TypeMask> mask))
+(ExpandUint16x8 x mask) => (VPEXPANDWMasked128 x (VPMOVVec32x4ToM <types.TypeMask> mask)) // want `Uint16x8.Expand converts argument mask \(Go type Mask16x8\) to a K mask with VPMOVVec32x4ToM, which expects a Mask32x4`
+
+// Zero-masking fusions.
+(VMOVDQU32Masked128 (VPADDD128 x y) mask) => (VPADDDMasked128 x y mask)
+(VMOVDQU16Masked128 (VPMADDWD128 x y) mask) => (VPMADDWDMasked128 x y mask) // want `VMOVDQU16Masked128 selects 16-bit lanes, but VPMADDWD writes 32-bit elements`
+(VMOVDQU32Masked128 (VPMOVDB128_128 x) mask) => (VPMOVDBMasked128_128 x mask) // want `AsInt32x4\(\).Masked\(m\) selects 8-bit element i by m\[0 1 2 3 - - - - ...\] instead of m\[0 0 0 0 1 1 1 1 ...\] \(-: no lane of m\)`
+(VMOVDQU8Masked128 (VPMOVDB128_128 x) mask) => (VPMOVDBMasked128_128 x mask)
+(VMOVDQU32Masked256 (VPMOVDB128_128 x) mask) => (VPMOVDBMasked128_128 x mask) // want `never matches: VMOVDQU32Masked256 operates on Vec256 but VPMOVDB128_128 produces Vec128`
+
+// Merging fusions.
+(VPBLENDMDMasked512 dst (VPADDD512 x y) mask) => (VPADDDMasked512Merging dst x y mask)
+(VPBLENDMWMasked512 dst (VPMADDWD512 x y) mask) => (VPMADDWDMasked512Merging dst x y mask) // want `VPBLENDMWMasked512 selects 16-bit lanes, but VPMADDWD writes 32-bit elements`
+
+// Byte blends: only 8-bit fusions are sound.
+(VPBLENDVB128 dst (VPABSB128 x) mask) && v.Block.CPUfeatures.HasFeature(ssa.CPUavx512) => (VPABSBMasked128Merging dst x (VPMOVVec8x16ToM <types.TypeMask> mask))
+(VPBLENDVB128 dst (VPADDD128 x y) mask) && v.Block.CPUfeatures.HasFeature(ssa.CPUavx512) => (VPADDDMasked128Merging dst x y (VPMOVVec32x4ToM <types.TypeMask> mask)) // want `VPBLENDVB selects bytes, but VPMOVVec32x4ToM keeps only the top bit of each 32-bit lane .* ignores all but m\[3\] of each 4 bytes`
+(VPBLENDVB128 dst (VPMADDWD128 x y) mask) && v.Block.CPUfeatures.HasFeature(ssa.CPUavx512) => (VPMADDWDMasked128Merging dst x y (VPMOVVec16x8ToM <types.TypeMask> mask)) // want `with m a Mask32x4 selects element i by m\[0 0 1 1\] instead of m\[0 1 2 3\]`
+(VPBLENDVB128 dst (VPMOVDB128_128 x) mask) && v.Block.CPUfeatures.HasFeature(ssa.CPUavx512) => (VPMOVDBMasked128_128Merging dst x (VPMOVVec8x16ToM <types.TypeMask> mask)) // want `^merge coverage: VPMOVDB writes only 4 of its 16 result elements`
