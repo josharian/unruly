@@ -22,6 +22,7 @@ findings and 2 if there are errors (including rules that fail to parse).
 | `opsig` | Operand kinds, widths, and signedness of generic ops |
 | `rules` | Rules parser, AST, and helpers for rulegen's semantics |
 | `typecheck` | Go types for the Go expressions in rules |
+| `internal/facts` | Integer ranges of rule expressions, from conditions |
 | `analysis` | `Analyzer`, `Pass`, `Run` |
 | `analysis/analysistest` | Test harness |
 | `analyzers` | The registry, `analyzers.All()` |
@@ -174,6 +175,42 @@ In the context rulegen gives it, an untyped constant has its converted type
 generated source, so their positions are not in the rules file. Checking
 needs the tree's source and its rulegen output; it works on `go env
 GOROOT`-style trees and on revisions extracted by the test harness.
+
+## Integer facts
+
+`facts.New(res, rule)` derives what is known about a rule's integer
+expressions when it fires, from its variables' types and its condition,
+and answers queries about any integer expression of the rule (from
+`typecheck`). It understands comparisons, `&&`, `||`, `!`, conversions,
+arithmetic, masks, shifts, `min`/`max`, and `math/bits`; it inlines
+helpers like `is32Bit`, `isPowerOfTwo`, `log64u`, and `ValAndOff.Off`
+from their definitions in the tree, and bounds helpers that return only
+constants, like `MoveSize`. Answers are sound: what it cannot
+prove is reported as unknown.
+
+```go
+f := facts.New(res, rule)    // for (ADDQconst [c] (ADDQconst [d] x)) && is32Bit(int64(c)+int64(d)) => (ADDQconst [c+d] x)
+e := tr.Expr(rule.Result, typecheck.AuxInt)   // c+d
+f.Range(e)                   // [-2147483648, 2147483647], ok: its possible values (always within its type)
+f.Exact(e)                   // true: no operation in c+d wraps around
+f.Overflows(e)               // nil; else each operation or conversion that may wrap, with its true range
+f.OverflowsMod(e, 32)        // wraparound that matters modulo 2^32, as for a 32-bit op
+f.Fits(c, types.Typ[types.Int8]) // false: c may not fit in int8
+f.In(e, 0, 63)               // false: e may not be a valid shift count
+f.NonZero(d)                 // false: d may be 0
+f.AssumeVar("c", facts.Range(0, 63)) // facts with an op's known auxint domain added
+```
+
+`Overflows` treats calls as opaque; to check `ssa.MakeValAndOff(int32(c), off)`,
+ask about each argument.
+
+Facts can take more assumptions: `AssumeIn(e, iv)` for an expression,
+`ExcludeVar(name, x)`, and `AssumeNot(cond, bind)` for an earlier rule's
+condition, which must have been false (`analyzers/auxdomain/prior` derives
+these from the rules for the same op). `f.Eval(e, vals)` evaluates an
+expression for given variable values, and `f.Holds(vals)` reports whether
+they satisfy everything `f` assumes, which turns an unproven bound into a
+concrete counterexample (`analyzers/auxdomain/witness` searches for one).
 
 ## Generic op signatures
 
