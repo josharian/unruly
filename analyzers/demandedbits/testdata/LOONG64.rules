@@ -1,0 +1,4 @@
+(AtomicCompareAndSwap32 ...) => (LoweredAtomicCas32 ...) // want `LoweredAtomicCas32 \(arg 1\) reads 64 bits of arg1, but the match reads only 32`
+(AtomicCompareAndSwap32Variant ptr old new mem) => (LoweredAtomicCas32Variant ptr (SignExt32to64 old) new mem)
+(Neq16 x y) => (SGTU (XOR (ZeroExt16to32 x) (ZeroExt16to64 y)) (MOVVconst [0])) // want `XOR \(arg 0\) reads 64 bits of \(ZeroExt16to32 x\), which defines only its low 32 bits`
+(Neq8 x y) => (SGTU (XOR (ZeroExt8to64 x) (ZeroExt8to64 y)) (MOVVconst [0]))

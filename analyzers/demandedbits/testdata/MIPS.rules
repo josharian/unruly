@@ -1,0 +1,7 @@
+// The int8 x is sign-extended from bit 15.
+(Rsh8x32 x y) => (SRA (SignExt16to32 x) y) // want `SignExt16to32 \(arg 0\) reads 16 bits of x, but the match reads only 8 bits \(Rsh8x32 \(arg 0\)\): bits 8-15 of x are garbage`
+(Rsh16x32 x y) => (SRA (SignExt16to32 x) y)
+
+// Ctz of x|1<<16 depends only on the low 16 bits of x.
+(Ctz16 x) => (Ctz32 (Or32 <typ.UInt32> x (MOVWconst [1<<16])))
+(Ctz8 x) => (Ctz32 (Or32 <typ.UInt32> x (MOVWconst [1<<16]))) // want `Ctz32 \(arg 0\) reads 16 bits of x, but the match reads only 8`

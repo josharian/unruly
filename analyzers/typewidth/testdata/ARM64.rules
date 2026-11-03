@@ -1,0 +1,4 @@
+// Lowering may compute a narrow value with a wide generic op.
+(Rsh32x64 <t> x y) => (Rsh64x64 <t> (SignExt32to64 x) y)
+(Rsh64x32 <t> x y) => (SRA x (CSEL [OpARM64LessThanU] <y.Type> y (Const64 <y.Type> [63]) (CMPWconst [64] y)))
+(Ctz16 x) => (Ctz32 (Or32 <typ.UInt32> x (MOVDconst [1<<16])))

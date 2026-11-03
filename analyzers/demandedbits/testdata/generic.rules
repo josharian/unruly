@@ -1,0 +1,4 @@
+(ZeroExt8to64 (Trunc64to8 x)) => (And64 x (Const64 <typ.UInt64> [0xff]))
+(ZeroExt8to64 (Trunc64to8 x)) => (And64 x (Const64 <typ.UInt64> [0xfff])) // want `And64 \(arg 0\) reads 12 bits of x, but the match reads only 8`
+(Neg8 (Sub8 x y)) => (Sub8 y x)
+(Trunc64to32 (Add64 x y)) => (Add32 (Trunc64to32 <typ.UInt32> x) (Trunc64to32 <typ.UInt32> y))

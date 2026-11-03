@@ -1,0 +1,11 @@
+(BitLen16 <t> x) => (NEGQ (ADDQconst <t> [-32] (LZCNTL x))) // want `LZCNTL \(arg 0\) reads 32 bits of x, but the match reads only 16`
+(BitLen8 <t> x) => (NEGQ (ADDQconst <t> [-32] (LZCNTL (MOVBQZX <x.Type> x))))
+(Ctz16NonZero x) => (TZCNTL x)
+(Ctz16 x) => (BSFL (ORLconst <typ.UInt32> [1<<16 ] x))
+(Ctz32 x) => (Select0 (BSFQ (BTSQconst <typ.UInt64> [32] x)))
+(Less32 x y) => (SETL (CMPQ x y)) // want `CMPQ \(arg 0\) reads 64 bits of x` `CMPQ \(arg 1\) reads 64 bits of y`
+(Less16 x y) => (SETL (CMPW x y))
+
+// An AND with a small mask makes the upper bits irrelevant.
+(CMPLconst (ANDLconst [0xff] x) [0]) => (CMPQconst (ANDQconst <typ.UInt64> [0xff] x) [0])
+(CMPLconst (ANDLconst [c] x) [0]) => (CMPQconst (ANDQconst <typ.UInt64> [c] x) [0]) // want `ANDQconst \(arg 0\) reads 64 bits of x, but the match reads only 32`

@@ -1,0 +1,8 @@
+(Rsh64x32 x y) => (SRA x (CSEL [OpARM64LessThanU] <y.Type> y (Const64 <y.Type> [63]) (CMPconst [64] y))) // want `CMPconst \(arg 0\) reads 64 bits of y, but the match reads only 32`
+(Rsh64Ux32 x y) => (SRL x (CSEL [OpARM64LessThanU] <y.Type> y (Const64 <y.Type> [0]) (CMPWconst [64] y)))
+(LessThan (CMPWconst [0] x:(ANDconst [c] y))) && x.Uses == 1 => (LessThan (TSTconst [c] y)) // want `TSTconst \(arg 0\) reads 64 bits of y, but the match reads only 32`
+(LessThan (CMPWconst [0] x:(ANDconst [c] y))) && x.Uses == 1 => (LessThan (TSTWconst [int32(c)] y))
+
+// A shift left by 16 discards all but the low 16 bits.
+(Rsh16x64 x (MOVDconst [2])) => (SRAconst (SLLconst <typ.UInt64> x [48]) [50])
+(Rsh16x64 x (MOVDconst [2])) => (SRAconst (SLLconst <typ.UInt64> x [32]) [34]) // want `SLLconst \(arg 0\) reads 18 bits of x, but the match reads only 16`
