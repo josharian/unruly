@@ -1,0 +1,3 @@
+// A truncation's result representation follows its own type (d585f04fd3).
+(Trunc64to8 x) && isSigned(x.Type) => (MOVBreg x) // want `condition reads x.Type: the representation of Trunc64to8's result follows the result type`
+(Trunc32to8 <t> x) && t.IsSigned() => (MOVBreg x)

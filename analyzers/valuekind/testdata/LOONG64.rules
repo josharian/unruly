@@ -1,0 +1,4 @@
+// An integer-typed result in a floating-point register (849501bbd9, go.dev/issue/81000).
+(Cvt32Fto32 ...) => (TRUNCFW ...) // want `TRUNCFW writes a floating-point register, but the result has Cvt32Fto32's type, which needs an integer register`
+(Cvt64Fto32 <t> x) => (MOVWfpgp (TRUNCDW <t> x))
+(Cvt32to32F ...) => (MOVWF ...)

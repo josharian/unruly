@@ -1,0 +1,3 @@
+// Direct-interface aggregates are pointer-shaped, not just pointers (eb832afb23).
+(StructMake x) && x.Type.IsPtr() => x // want `StructMake is an identity for direct-interface \(pointer-shaped\) aggregates, but the condition tests x.Type.IsPtr\(\)`
+(ArrayMake1 x) && x.Type.IsPtrShaped() => x

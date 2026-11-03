@@ -1,0 +1,18 @@
+// The Move's type must not come from the destination pointer's type (e283473ebb).
+(SelectN [0] call:(StaticCall {sym} dst src (Const64 [sz]) mem)) // want `result calls dst.Type.Elem\(\), but an argument's type is unreliable`
+	&& sz >= 0
+	&& call.Uses == 1
+	&& isSameCall(sym, "runtime.memmove")
+	&& dst.Type.IsPtr()
+	&& clobber(call)
+	=> (Move {dst.Type.Elem()} [int64(sz)] dst src mem)
+// ... nor from the type of the stored destination argument (8f854244ad).
+(StaticCall {sym} s1:(Store _ (Const64 [sz]) s2:(Store _ src s3:(Store {t} _ dst mem)))) // want `result calls t.Elem\(\) on the {t} of a Store in the match`
+	&& isSameCall(sym, "runtime.memmove")
+	&& s1.Uses == 1 && s2.Uses == 1 && s3.Uses == 1
+	&& clobber(s1, s2, s3)
+	=> (Move {t.Elem()} [int64(sz)] dst src mem)
+
+// The root's own type is reliable.
+(PtrIndex <t> ptr idx) && config.PtrSize == 8 => (AddPtr ptr (Mul64 <typ.Int> idx (Const64 <typ.Int> [t.Elem().Size()])))
+(Load <t> ptr mem) && t.IsArray() && t.NumElem() == 1 && t.Size() > 0 => (ArrayMake1 (Load <t.Elem()> ptr mem))

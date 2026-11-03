@@ -1,0 +1,12 @@
+// The store's width comes from {t}, not from the stored value (d4cc51d411, 60140a86b3).
+(Store {t} ptr val mem) && t.Size() == 8 && is64BitFloat(val.Type) => (MOVSDstore ptr val mem) // want `condition reads val.Type: Store's width and register class come from its {t}`
+(Store {t} ptr val mem) && t.Size() == 4 && t.IsFloat() => (MOVSSstore ptr val mem)
+(Store {t} ptr val mem) && t.Size() == 4 && !t.IsFloat() => (MOVLstore ptr val mem)
+
+// The shift's widths come from its name (4b803151ce).
+(Lsh64x64 <t> x y) && y.Type.Size() == 8 => (SHLQ x y) // want `condition reads y.Type: Lsh64x64's operand widths`
+(Lsh32x64 <t> x y) && shiftIsBounded(v) => (SHLL x y)
+
+// Sign-agnostic comparisons may pick an extension from the operands'
+// types, as long as both operands get the same one.
+(Eq8 x y) && x.Type.IsSigned() && y.Type.IsSigned() => (SETEQ (CMPL (MOVBQSX <typ.Int32> x) (MOVBQSX <typ.Int32> y)))

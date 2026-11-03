@@ -1,0 +1,28 @@
+// A read-modify-write produces memory; ADDQconst produces a register (398a8ed653).
+(ADDQconstmodify [valOff] {sym} ptr (MOVSDstore [ValAndOff(valOff).Off()] {sym} ptr x _)) => (ADDQconst [ValAndOff(valOff).Val()] (MOVQf2i x)) // want `ADDQconstmodify is memory, but ADDQconst produces an integer value`
+
+// A tuple-valued op lowered to a memory-only op (dbfa3cacc7).
+(AtomicAnd8value ptr val mem) => (ANDBlock ptr val mem) // want `AtomicAnd8value is a tuple, but ANDBlock produces memory`
+(AtomicAnd8 ptr val mem) => (ANDBlock ptr val mem)
+
+// Atomic loads have one register output and a memory argument; the
+// tables don't say whether they produce (value, memory), so they are
+// not checked.
+(AtomicLoad8 ptr mem) => (MOVBatomicload ptr mem)
+
+// FlagEQ is a flags value, so a constant typed x.Type is flags-typed (23f3ea82b9).
+(CMPQconst (MOVQconst [x]) [y]) && x == int64(y) => (FlagEQ)
+(SETEQstore [off] {sym} ptr x:(FlagEQ) mem) => (MOVBstore [off] {sym} ptr (MOVLconst <x.Type> [1]) mem) // want `\(MOVLconst <x.Type>\) gives a flags type to an op that produces an integer value`
+(SETNEstore [off] {sym} ptr (FlagEQ) mem) => (MOVBstore [off] {sym} ptr (MOVLconst <typ.UInt8> [0]) mem)
+(SETLstore [off] {sym} ptr x mem) => (MOVBstore [off] {sym} ptr (MOVLconst <types.TypeMem> [0]) mem) // want `gives a memory type to an op that produces an integer value`
+
+// Select0 of memory.
+(MOVBstore [off] {sym} ptr (Select0 (ANDBlock p q m)) mem) => (MOVBstore [off] {sym} ptr p mem) // want `Select0 of \(ANDBlock p q m\), which is memory, not a tuple`
+
+// A bare variable of the wrong kind.
+(ANDLlock ptr val mem:(MOVLstore _ _ _)) => mem
+(ORLlock ptr x:(ADDLconst _) mem) => x // want `ORLlock is memory, but the result x is an integer value`
+
+// An explicit result type that suits the output register.
+(MOVQf2i <t> (MOVSDconst [c])) => (MOVQconst <t> [int64(math.Float64bits(c))])
+(MOVQi2f <t> x:(MOVQconst)) => (MOVSDconst <typ.UInt64> [0]) // want `MOVSDconst writes a floating-point register, but the result has type typ.UInt64, which needs an integer register`
