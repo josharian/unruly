@@ -1,0 +1,5 @@
+(CMPQload {sym} [off] ptr x mem) => (CMPQ (MOVQload {sym} [off] ptr mem) x) // want `\(MOVQload \.\.\.\) compared with x gets MOVQload's default type UInt64`
+(CMPQloadidx8 {sym} [off] ptr idx x mem) => (CMPQ (MOVQloadidx8 <x.Type> {sym} [off] ptr idx mem) x)
+
+// The load is compared with itself, not with a matched value.
+(CMPQconstload {sym} [vo] ptr mem) && vo.Val() == 0 => (TESTQ x:(MOVQload {sym} [vo.Off()] ptr mem) x)

@@ -1,0 +1,16 @@
+(ConstNil) => (MOVQconst [0])
+(Store {t} ptr val mem) && t.Size() == 2 => (MOVWstore ptr val mem)
+
+// w is the value of a byte store, which may be a uint8.
+(MOVBstore [i] {s} p w // want `MOVWstore stores 2 bytes of \(ROLWconst <w.Type> \.\.\.\), but w.Type is the type of w, argument 1 of MOVBstore, which may be 8 bits wide`
+  x0:(MOVBstore [i-1] {s} p (SHRWconst [8] w) mem))
+  && x0.Uses == 1
+  && clobber(x0)
+  => (MOVWstore [i-1] {s} p (ROLWconst <w.Type> [8] w) mem)
+
+// The value is typed by the store's width.
+(MOVBstore [i] {s} p (SHRWconst [8] w)
+  x0:(MOVBstore [i+1] {s} p w mem))
+  && x0.Uses == 1
+  && clobber(x0)
+  => (MOVWstore [i] {s} p (ROLWconst <typ.UInt16> [8] w) mem)

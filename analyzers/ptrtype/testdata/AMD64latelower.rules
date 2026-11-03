@@ -1,0 +1,8 @@
+// y+c is not a pointer, but t may be one.
+(LEAQ1 <t> [c] {s} x y) && isPtr(x.Type) && c != 0 && s == nil => (ADDQ x (ADDQconst <t> [c] y)) // want `\(ADDQconst <t> \.\.\.\) is typed like the matched LEAQ1, which may be a pointer, but does not contain its pointer operand x`
+
+// The condition rules out a pointer.
+(LEAQ2 <t> [c] {s} x y) && !isPtr(t) && c != 0 && s == nil => (ADDQconst [c] (LEAQ2 <t> x y))
+
+// The intermediate contains the pointer.
+(LEAQ4 <t> [c] {s} x y) && isPtr(x.Type) && c != 0 && s == nil => (ADDQconst [c] (LEAQ4 <t> x y))

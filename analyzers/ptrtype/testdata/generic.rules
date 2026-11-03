@@ -1,0 +1,17 @@
+// The OffPtr is typed with the type Zero {t} clears, not a pointer to it.
+(Zero {t} [16] dst mem) => (Store {typ.Int64} (OffPtr <t> [8] dst) (Const64 <typ.Int64> [0]) (Store {typ.Int64} dst (Const64 <typ.Int64> [0]) mem)) // want `OffPtr produces a pointer but is typed <t>, and t is the type Zero \{t\} stores`
+
+(Load <t> (OffPtr <u> [0] (Addr <w> {sym} base)) mem) && u == w => (Load <t> (Addr <t.Elem()> {sym} base) mem) // want `Addr produces a pointer but is typed <t.Elem\(\)>, the type of an element`
+
+(Store dst (StructMake <t> f0 f1) mem) =>
+  (Store {t.FieldType(1)}
+    (OffPtr <t.FieldType(1).PtrTo()> [t.FieldOff(1)] dst)
+    f1
+    (Store {t.FieldType(0)}
+      (OffPtr <t.FieldType(0).PtrTo()> [0] dst)
+        f0 mem))
+
+// The FieldType of a call's type is the type of a result, here a pointer.
+(StaticLECall {callAux} _ (Const64 [0]) (Const64 [0]) mem)
+	&& isSameCall(callAux, "runtime.makeslice")
+	=> (MakeResult (Addr <v.Type.FieldType(0)> {ir.Syms.Zerobase} (SB)) mem)

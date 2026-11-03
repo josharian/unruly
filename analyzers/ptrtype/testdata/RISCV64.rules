@@ -1,0 +1,14 @@
+// Lowering rules from which ptrtype derives op roles.
+(Sub64 ...) => (SUB ...)
+(SubPtr ...) => (SUB ...)
+(AddPtr ...) => (ADD ...)
+(ConstNil) => (MOVDconst [0])
+
+// The difference of two pointers is not a pointer.
+(EqPtr x y) => (SEQZ (SUB <x.Type> x y)) // want `SUB computes a non-pointer but is typed <x.Type>, and x.Type is the type of x, an address operand of EqPtr`
+(NeqPtr x y) => (SNEZ (SUB <typ.Uintptr> x y))
+
+// A typed nil folded into ADDI, which (ADDI [0] x) => x then drops.
+(ADD (MOVDconst <t> [val]) x) && is32Bit(val) && !t.IsPtr() => (ADDI [val] x)
+(ADD (MOVDconst [val]) x) && is32Bit(val) => (ADDI [val] x) // want `ADD of a MOVDconst, which may be a typed nil \(ConstNil lowers to it\), is folded into ADDI without a !t.IsPtr\(\) check`
+(ADDI [0] x) => x

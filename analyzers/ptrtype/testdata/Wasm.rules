@@ -1,0 +1,6 @@
+(Add(64|Ptr) ...) => (I64Add ...)
+(ConstNil) => (I64Const [0])
+
+(I64Add (I64Const [x]) y) && y.Op != ssaop.OpWasmI64Const => (I64Add y (I64Const [x])) // want `the matched I64Const may be a typed nil \(ConstNil lowers to it\), but the result rebuilds it as \(I64Const \[x\]\) with I64Const's default type Int64`
+(I64Add x (I64Const <t> [y])) && !t.IsPtr() => (I64AddConst [y] x)
+(I64AddConst [0] x) => x

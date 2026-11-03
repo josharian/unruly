@@ -1,0 +1,2 @@
+(StructSelect [0] x:(IData _)) => x // want `result x is the IData that StructSelect projects from`
+(ArraySelect [0] (IData x)) => (IData x)
