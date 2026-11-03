@@ -1,0 +1,11 @@
+// A Move or Zero size is not bounded by the type of its auxint.
+(Zero [s] destptr mem) && s > 1024 => (LoweredZero [s%256] destptr (ADDconst <destptr.Type> destptr [(int32(s)/256)*256]) mem) // want `int32\(s\) truncates in int32: .*; ADDconst sign-extends its 32-bit immediate to 64 bits`
+(Zero [s] destptr mem) && s > 0 && s <= 1024 => (CLEAR [ssa.MakeValAndOff(int32(s), 0)] destptr mem)
+(Move [s] dst src mem) && s > 0 => (MVC [ssa.MakeValAndOff(int32(s), 0)] dst src mem) // want `int32\(s\) truncates in int32: .*; MVC's value is a size, which must be exact`
+
+// Stack frames are smaller than 1 GB.
+(OffPtr [off] ptr:(SP)) => (MOVDaddr [int32(off)] ptr)
+(OffPtr [off] ptr) => (MOVDaddr [int32(off)] ptr) // want `int32\(off\) truncates in int32: .*; MOVDaddr's offset is added to a 64-bit address`
+
+// CMPUconst zero-extends its immediate: a question of signedness.
+(CMPU x (MOVDconst [c])) && ssa.IsU32Bit(c) => (CMPUconst x [int32(c)])

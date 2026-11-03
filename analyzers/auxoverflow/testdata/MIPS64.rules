@@ -1,0 +1,5 @@
+// The MIPS64 assembler truncates immediates to 32 bits.
+(OffPtr [off] ptr) => (ADDVconst [off] ptr) // want `off may be 2147483648, which does not fit in int32 .*; ADDVconst's auxint is an immediate operand, and the MIPS64 assembler silently truncates immediates to 32 bits`
+(ADDV x (MOVVconst [c])) && ssa.Is32Bit(c) => (ADDVconst [c] x)
+(ANDconst [c] (ANDconst [d] x)) => (ANDconst [c&d] x)
+(Zero [s] {t} ptr mem) && s > 1024 => (LoweredZero [t.Alignment()] ptr (ADDVconst <ptr.Type> ptr [s-ssa.MoveSize(t.Alignment(), config)]) mem) // want `s - ssa.MoveSize\(t.Alignment\(\), config\) may be 2147483648`

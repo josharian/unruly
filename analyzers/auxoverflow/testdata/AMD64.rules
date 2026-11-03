@@ -1,0 +1,26 @@
+// An int32 offset sum wraps; the address is 64 bits.
+(MOVQload [off1] {sym} (ADDQconst [off2] ptr) mem) => (MOVQload [off1+off2] {sym} ptr mem) // want `off1 \+ off2 wraps in int32: its value may be 2147483648, which becomes -2147483648 .*; MOVQload's offset is added to a 64-bit address`
+(MOVLload [off1] {sym} (ADDQconst [off2] ptr) mem) && ssa.Is32Bit(int64(off1)+int64(off2)) => (MOVLload [off1+off2] {sym} ptr mem)
+
+// A guard on the wrapped sum checks nothing.
+(MOVWload [off1] {sym} (ADDQconst [off2] ptr) mem) && ssa.Is32Bit(int64(off1+off2)) => (MOVWload [off1+off2] {sym} ptr mem) // want `off1 \+ off2 wraps`
+
+// 64-bit immediates are sign-extended int32s.
+(ADDQconst [c] (ADDQconst [d] x)) => (ADDQconst [c+d] x) // want `c \+ d wraps in int32: .*; ADDQconst sign-extends its 32-bit immediate to 64 bits`
+(SUBQconst [c] (ADDQconst [d] x)) && ssa.Is32Bit(int64(d)-int64(c)) => (ADDQconst [d-c] x)
+(ANDQ x (MOVQconst [c])) => (ANDQconst [int32(c)] x) // want `int32\(c\) truncates in int32: its value may be 2147483648, which becomes -2147483648`
+(ORQ x (MOVQconst [c])) && ssa.Is32Bit(c) => (ORQconst [int32(c)] x)
+
+// 32-bit operations wrap anyway.
+(ADDLconst [c] (ADDLconst [d] x)) => (ADDLconst [c+d] x)
+(ANDL x (MOVQconst [c])) => (ANDLconst [int32(c)] x)
+
+// The value of a storeconst is stored at the op's width.
+(MOVQstore [off] {sym} ptr (MOVQconst [c]) mem) => (MOVQstoreconst [ssa.MakeValAndOff(int32(c),off)] {sym} ptr mem) // want `int32\(c\) truncates in int32: .*; MOVQstoreconst sign-extends its 32-bit value to 64 bits`
+(MOVLstore [off] {sym} ptr (MOVQconst [c]) mem) => (MOVLstoreconst [ssa.MakeValAndOff(int32(c),off)] {sym} ptr mem)
+(MOVBstore [off] {sym} ptr (MOVLconst [c]) mem) => (MOVBstoreconst [ssa.MakeValAndOff(int32(int8(c)),off+1)] {sym} ptr mem) // want `off \+ 1 wraps in int32`
+
+// 8-bit counts and selectors must not be truncated from wider values.
+(SHLQ x (MOVQconst [c])) => (SHLQconst [int8(c)] x) // want `int8\(c\) truncates in int8: its value may be 128, which becomes -128 .*; SHLQconst's 8-bit auxint is a count or selector, so it must be exact`
+(SHLL x (MOVQconst [c])) => (SHLLconst [int8(c&31)] x)
+(CMPB x (MOVLconst [c])) => (CMPBconst x [int8(c)])

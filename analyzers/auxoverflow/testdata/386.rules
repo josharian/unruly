@@ -1,0 +1,2 @@
+// 386 addresses are 32 bits, so offsets may wrap.
+(MOVLload [off1] {sym} (ADDLconst [off2] ptr) mem) => (MOVLload [off1+off2] {sym} ptr mem)

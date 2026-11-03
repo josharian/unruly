@@ -1,0 +1,11 @@
+// Integer constant folds need a nonzero divisor.
+(Div64 (Const64 [c]) (Const64 [d])) => (Const64 [c/d]) // want `c / d in the result divides by zero if d is 0, panicking the compiler`
+(Div32 (Const32 [c]) (Const32 [d])) && d != 0 => (Const32 [c/d])
+(Mod64u (Const64 [c]) (Const64 [d])) && d != 0 => (Const64 [int64(uint64(c) % uint64(d))])
+
+// Float division is not checked.
+(Div64F (Const64F [c]) (Const64F [d])) && c/d == c/d => (Const64F [c/d])
+
+// The guard must come before the division.
+(Mod64 <t> n (Const64 [c])) && c != 0 && int64(n.Uses)%c == 0 => (Const64 <t> [0])
+(Mod32 <t> n (Const32 [c])) && int32(n.Uses)%c == 0 && c != 0 => (Const32 <t> [0]) // want `int32\(n.Uses\) % c in the condition divides by zero if c is 0`
