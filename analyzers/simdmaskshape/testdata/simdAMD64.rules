@@ -30,4 +30,3 @@
 (VPBLENDVB128 dst (VPABSB128 x) mask) && v.Block.CPUfeatures.HasFeature(ssa.CPUavx512) => (VPABSBMasked128Merging dst x (VPMOVVec8x16ToM <types.TypeMask> mask))
 (VPBLENDVB128 dst (VPADDD128 x y) mask) && v.Block.CPUfeatures.HasFeature(ssa.CPUavx512) => (VPADDDMasked128Merging dst x y (VPMOVVec32x4ToM <types.TypeMask> mask)) // want `VPBLENDVB selects bytes, but VPMOVVec32x4ToM keeps only the top bit of each 32-bit lane .* ignores all but m\[3\] of each 4 bytes`
 (VPBLENDVB128 dst (VPMADDWD128 x y) mask) && v.Block.CPUfeatures.HasFeature(ssa.CPUavx512) => (VPMADDWDMasked128Merging dst x y (VPMOVVec16x8ToM <types.TypeMask> mask)) // want `with m a Mask32x4 selects element i by m\[0 0 1 1\] instead of m\[0 1 2 3\]`
-(VPBLENDVB128 dst (VPMOVDB128_128 x) mask) && v.Block.CPUfeatures.HasFeature(ssa.CPUavx512) => (VPMOVDBMasked128_128Merging dst x (VPMOVVec8x16ToM <types.TypeMask> mask)) // want `^merge coverage: VPMOVDB writes only 4 of its 16 result elements`

@@ -187,6 +187,7 @@ func buildTable() map[string]Sig {
 	}
 	add("Copysign", sig(f64, f64, f64))
 	add("FMA", sig(f64, f64, f64, f64))
+	add("FMA32", sig(float(32), float(32), float(32), float(32)))
 
 	add("Min64", sig(signed(64), signed(64), signed(64)))
 	add("Max64", sig(signed(64), signed(64), signed(64)))
@@ -407,6 +408,11 @@ func buildTable() map[string]Sig {
 	} {
 		add("IfElse"+e.name+"s", sig(vector, vector, vector, vector)) // x, mask, y
 		add("Broadcast"+e.name+"s", sig(vector, e.elem))
+	}
+	// amd64 Masked (x, mask) and IfElse (x, mask, y), named by element width.
+	for _, e := range []string{"8", "16", "32", "64", "Float32", "Float64"} {
+		add("Masked"+e, sig(vector, vector, vector))
+		add("IfElse"+e, sig(vector, vector, vector, vector))
 	}
 	for _, w := range widths {
 		addf(sig(vector), "Mask%dsAllTrue", w)

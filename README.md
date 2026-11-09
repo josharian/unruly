@@ -13,7 +13,8 @@ AMD64.rules:1621: auxoverflow: dstOff + 8 wraps in int32: its value may be 21474
 PPC64.rules:640: rulelint: x.Type.Size() is in bytes [...], so x.Type.Size() <= 16 is always true [...]
 ```
 
-Each of those is a real bug on tip as of November 2026.
+Each of those was a real bug on tip in early November 2026; the first has
+since been fixed upstream.
 
 ## Running it
 
@@ -58,7 +59,7 @@ UNRULY_GOROOT=~/go go test -v -run Survey ./analyzers/condsem
 
 ## TODO
 
-- **A baseline.** unruly reports about 870 findings on tip, all real, so
+- **A baseline.** unruly reports about 390 findings on tip, all real, so
   it can't gate CI yet. Fix them upstream, or add a file of accepted
   findings so that only new ones fail.
 - **Arch semantics.** `difftest` randomly tests rules made only of generic
