@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // GenDir extracts the source tree (src, without testdata) at revision rev
@@ -52,6 +53,7 @@ func extract(repo, hash, dir string, pathspecs ...string) (string, error) {
 	root := filepath.Join(cache, "unruly", "rev", hash, strings.ReplaceAll(dir, "/", "_"))
 	final := filepath.Join(root, filepath.FromSlash(dir))
 	if _, err := os.Stat(final); err == nil {
+		touch(filepath.Dir(root))
 		return final, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(root), 0o777); err != nil {
@@ -88,6 +90,16 @@ func extract(repo, hash, dir string, pathspecs ...string) (string, error) {
 		}
 	}
 	return final, nil
+}
+
+// touch marks a cache entry as used, so that cache cleaners can prune
+// entries by age. Like the go command's build cache, it updates the
+// modification time at most once an hour.
+func touch(path string) {
+	now := time.Now()
+	if fi, err := os.Stat(path); err == nil && now.Sub(fi.ModTime()) > time.Hour {
+		os.Chtimes(path, now, now)
+	}
 }
 
 func untar(r io.Reader, dst string) error {

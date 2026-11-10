@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // FindGenDir returns the rulegen directory for path, which may be a Go root
@@ -71,6 +72,13 @@ func Load(dir string) (*Tables, error) {
 	if cd, err := os.UserCacheDir(); err == nil {
 		cacheFile = filepath.Join(cd, "unruly", "ops", key+".json")
 		data, _ = os.ReadFile(cacheFile)
+		if data != nil {
+			// Mark the entry as used so that cache cleaners can prune by age.
+			now := time.Now()
+			if fi, err := os.Stat(cacheFile); err == nil && now.Sub(fi.ModTime()) > time.Hour {
+				os.Chtimes(cacheFile, now, now)
+			}
+		}
 	}
 	if data == nil {
 		data, err = dump(dir)
