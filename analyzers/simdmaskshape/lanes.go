@@ -359,6 +359,11 @@ type interp struct {
 	// bound are the match's named compound values, which a result may
 	// refer to by name.
 	bound map[string]*rules.Value
+	// g is the meaning of the match, if it is a generic op.
+	g *generic
+	// maskLanes are the lane widths of variables that are vectors of
+	// all-ones or all-zeros lanes: the Go masks of generic ops.
+	maskLanes map[string]int
 	// wild names the match's _ leaves, which are distinct variables.
 	wild map[*rules.Value]string
 
@@ -425,6 +430,15 @@ func (in *interp) vecVar(name string) *vreg {
 	if in.fill >= 0 {
 		for i := range v {
 			v[i] = byte(in.fill)
+		}
+		in.vecs[name] = v
+		return v
+	}
+	if w := in.maskLanes[name]; w != 0 {
+		for i := range 512 / w {
+			if in.rng.IntN(2) == 0 {
+				v.set(w, i, ones(w))
+			}
 		}
 		in.vecs[name] = v
 		return v
@@ -506,6 +520,9 @@ func (in *interp) eval(v *rules.Value, isK bool) val {
 			return val{k: in.kVar(name)}
 		}
 		return val{v: *in.vecVar(name)}
+	}
+	if in.g != nil && v == in.r.Match {
+		return in.genericVal()
 	}
 	info := classify(v.Op, len(v.Args))
 	arg := func(i int) val {
@@ -603,6 +620,25 @@ func (out *val) sel(w, i int, known, set bool, t, f val) {
 	}
 	out.v.set(w, i, src.v.get(w, i))
 	out.vu |= src.vu & laneBytes(w, i)
+}
+
+// genericVal returns the value of the match, generic op in.g.
+func (in *interp) genericVal() val {
+	var out val
+	x, m := in.vecVar(in.g.x.Name), in.vecVar(in.g.mask.Name)
+	y := new(vreg)
+	if in.g.y != nil {
+		y = in.vecVar(in.g.y.Name)
+	}
+	w := in.g.lane
+	for i := range 512 / w {
+		src := y
+		if top(m.get(w, i), w) {
+			src = x
+		}
+		out.v.set(w, i, src.get(w, i))
+	}
+	return out
 }
 
 // unknown returns a value of which nothing is known: an unmodeled op's.

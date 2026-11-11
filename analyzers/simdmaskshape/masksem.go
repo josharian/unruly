@@ -3,6 +3,7 @@ package simdmaskshape
 import (
 	"fmt"
 	"go/ast"
+	"go/token"
 	"go/types"
 	"maps"
 	"math/big"
@@ -18,25 +19,46 @@ import (
 
 // checkMaskSem evaluates r's match and result on the same inputs, lane
 // by lane, and reports a rule whose result computes something else, if
-// its match is a modeled op (see lanes.go). It reports only differences
-// it finds an input for, in lanes whose values don't depend on unmodeled
-// ops: inputs that satisfy the condition's constraints on the rule's
-// integer variables (such as an auxint predicate). It does not model
-// conditions on the values themselves, so it skips rules whose
-// conditions inspect them.
+// its match is a modeled op (see lanes.go) or a generic Masked or IfElse
+// op. It reports only differences it finds an input for, in lanes
+// whose values don't depend on unmodeled ops: inputs that satisfy the
+// condition's constraints on the rule's integer variables (such as an
+// auxint predicate), with Go masks all ones or all zeros in each lane.
+// It does not model conditions on the values themselves, so it skips
+// rules whose conditions inspect them.
 func (c *checker) checkMaskSem(r *rules.Rule) {
 	if r.Result == nil || r.Match.Rest || r.Match.Ellipsis {
 		return
 	}
 	in := c.newInterp(r)
-	info := classify(r.Match.Op, len(r.Match.Args))
-	if info.kind == opaqueOp {
-		return
-	}
-	matchK := writesMask(r.Match.Op)
-	bits := info.bits
-	if matchK {
-		_, bits = in.kShape(r.Match)
+	matchK := false
+	bits := 0
+	if r.Match.Op.IsGeneric() {
+		g := c.genericSem(r)
+		if g == nil {
+			return
+		}
+		in.g = g
+		in.maskLanes = map[string]int{g.mask.Name: g.lane}
+		bits = 8 * g.size
+		if b := vecBits(resultTyp(r)); bits != 0 && b != 0 && b != bits {
+			c.pass.Reportf(r.Pos, "lowering shape: %s with %s.Size() == %d is a %d-bit vector, but %s produces %s",
+				r.Match.Op.Name, r.Match.Type, g.size, bits, r.Result.Op.Name, r.Result.Op.Typ)
+			return
+		}
+		if bits == 0 {
+			bits = vecBits(resultTyp(r))
+		}
+	} else {
+		info := classify(r.Match.Op, len(r.Match.Args))
+		if info.kind == opaqueOp {
+			return
+		}
+		matchK = writesMask(r.Match.Op)
+		bits = info.bits
+		if matchK {
+			_, bits = in.kShape(r.Match)
+		}
 	}
 	if bits == 0 || bits > 512 || r.Result.Op != nil && writesMask(r.Result.Op) != matchK || inspectsValues(r) {
 		return
@@ -64,6 +86,13 @@ func (c *checker) checkMaskSem(r *rules.Rule) {
 			}
 		}
 	}
+}
+
+func resultTyp(r *rules.Rule) string {
+	if r.Result.Op == nil {
+		return ""
+	}
+	return r.Result.Op.Typ
 }
 
 // equal reports whether a and b agree in their low bits bits (bits
@@ -378,14 +407,16 @@ func (in *interp) selectOf(v *rules.Value) *selInfo {
 	}
 	info := classify(v.Op, len(v.Args))
 	s := &selInfo{w: info.w}
-	switch info.kind {
-	case maskMovOp:
+	switch {
+	case in.g != nil && v == in.r.Match:
+		s.t, s.f, s.mask, s.w = in.g.x, in.g.y, in.g.mask, in.g.lane
+	case info.kind == maskMovOp:
 		s.t, s.mask, s.k = v.Args[0], v.Args[1], true
-	case blendKOp:
+	case info.kind == blendKOp:
 		s.t, s.f, s.mask, s.k = v.Args[1], v.Args[0], v.Args[2], true
-	case blendVOp:
+	case info.kind == blendVOp:
 		s.t, s.f, s.mask = v.Args[1], v.Args[0], v.Args[2]
-	case bitOp:
+	case info.kind == bitOp:
 		if !andRE.MatchString(v.Op.Asm) {
 			return nil
 		}
@@ -686,7 +717,7 @@ func (in *interp) vecLane(v *rules.Value) int {
 		if b := in.bound[v.Name]; b != nil {
 			return in.vecLane(b)
 		}
-		return 0
+		return in.maskLanes[v.Name]
 	}
 	info := classify(v.Op, len(v.Args))
 	switch info.kind {
@@ -728,6 +759,9 @@ func (in *interp) kShape(v *rules.Value) (lane, lanes int) {
 
 // maskDesc describes mask v for diagnostics.
 func (in *interp) maskDesc(v *rules.Value) string {
+	if in.g != nil && v.IsVar() && v.Name == in.g.mask.Name {
+		return in.g.maskDesc()
+	}
 	return v.Text
 }
 
@@ -790,4 +824,136 @@ func misread(w, e int, unit string) string {
 		return fmt.Sprintf("lane i is selected by %s i instead of %ss %d*i..%d*i+%d", unit, unit, w/e, w/e, w/e-1)
 	}
 	return fmt.Sprintf("lane i is selected by %s i instead of %s i/%d", unit, unit, e/w)
+}
+
+// A generic is the meaning of a generic Masked or IfElse op: where mask
+// is set, x; elsewhere y (or 0 if y is "").
+type generic struct {
+	x, y, mask *rules.Value
+	lane       int    // the mask's lane width
+	mtype      string // the mask's Go type, if the size is known
+	size       int    // the vector's size in bytes, or 0
+}
+
+func (g *generic) maskDesc() string {
+	if g.mtype == "" {
+		return g.mask.Text
+	}
+	return fmt.Sprintf("%s (a %s)", g.mask.Text, g.mtype)
+}
+
+// genericSem returns the meaning of r's match if it is a generic op that
+// cmd/compile intrinsifies only for archsimd's Masked (x.Masked(mask) is
+// mask ? x : 0) or IfElse (x.IfElse(mask, y) is mask ? x : y) methods,
+// with the mask's lane width from its Go type. The size condition
+// (t.Size() == 16, ...) picks the methods of the rule's vector size.
+func (c *checker) genericSem(r *rules.Rule) *generic {
+	size := condSize(r)
+	var sem, mtype string
+	maskLane := 0
+	var roles []string
+	for _, g := range c.api[r.Match.Op.Name] {
+		out, ok := parseShape(g.Result)
+		if !ok || size != 0 && out.Bits() != 8*size {
+			continue
+		}
+		_, name, _ := strings.Cut(g.Method, ".")
+		if name != "Masked" && name != "IfElse" || g.Perm == nil || len(g.Perm) != len(r.Match.Args) {
+			return nil
+		}
+		rs := make([]string, len(r.Match.Args))
+		lane := 0
+		for i := range rs {
+			s, ok := parseShape(g.goArg(i))
+			switch {
+			case g.Perm[i] == 0:
+				rs[i] = "x"
+			case ok && s.Kind == "Mask":
+				rs[i], lane = "mask", s.Elem
+			default:
+				rs[i] = "y"
+			}
+		}
+		if lane == 0 {
+			return nil // no Mask argument
+		}
+		if sem != "" && (sem != name || !slices.Equal(rs, roles) || lane != maskLane) {
+			return nil // methods disagree
+		}
+		sem, roles, maskLane = name, rs, lane
+		mtype = g.goArg(slices.Index(rs, "mask"))
+	}
+	if sem == "" {
+		return nil
+	}
+	g := &generic{lane: maskLane, size: size}
+	for i, a := range r.Match.Args {
+		if !a.IsVar() {
+			return nil
+		}
+		switch roles[i] {
+		case "mask":
+			g.mask = a
+		case "x":
+			g.x = a
+		default:
+			g.y = a
+		}
+	}
+	if g.x == nil || g.mask == nil {
+		return nil
+	}
+	if size != 0 {
+		g.mtype = mtype
+	}
+	return g
+}
+
+// condSize returns N if r's condition requires t.Size() == N, where
+// <t> is the match's type, as one of its top-level && terms, or 0.
+func condSize(r *rules.Rule) int {
+	if r.CondExpr == nil || !rules.IsVarText(r.Match.Type) {
+		return 0
+	}
+	n := 0
+	var conj func(e ast.Expr)
+	conj = func(e ast.Expr) {
+		e = ast.Unparen(e)
+		b, ok := e.(*ast.BinaryExpr)
+		switch {
+		case !ok:
+		case b.Op == token.LAND:
+			conj(b.X)
+			conj(b.Y)
+		case b.Op == token.EQL:
+			for _, p := range [][2]ast.Expr{{b.X, b.Y}, {b.Y, b.X}} {
+				if m, ok := sizeEq(p[0], p[1], r.Match.Type); ok {
+					if n != 0 && n != m {
+						m = -1 // contradictory
+					}
+					n = m
+				}
+			}
+		}
+	}
+	conj(r.CondExpr)
+	return max(n, 0)
+}
+
+// sizeEq reports N if call is t.Size() and lit is the integer N.
+func sizeEq(call, lit ast.Expr, t string) (int, bool) {
+	c, ok := call.(*ast.CallExpr)
+	l, ok2 := lit.(*ast.BasicLit)
+	if !ok || !ok2 || len(c.Args) != 0 {
+		return 0, false
+	}
+	sel, ok := c.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Size" {
+		return 0, false
+	}
+	if id, ok := sel.X.(*ast.Ident); !ok || id.Name != t {
+		return 0, false
+	}
+	n, err := strconv.Atoi(l.Value)
+	return n, err == nil
 }

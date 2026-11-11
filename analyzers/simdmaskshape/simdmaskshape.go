@@ -62,6 +62,10 @@ element i by m[i/2]. The checks:
     operand order; a K mask with the wrong lanes; a vector mask read at a
     coarser granularity than its lanes; a select of the wrong value; or a
     mask the result ignores.
+    Lowerings of the generic ops that archsimd's x.Masked(mask)
+    (mask ? x : 0) and x.IfElse(mask, y) (mask ? x : y) intrinsify to are
+    checked the same way, with the mask's lanes from its Go type, and
+    must produce a vector of the size their t.Size() condition requires.
   - Lowering shapes: a generic op's Go result width must equal the typ of
     the machine op it lowers to, and the VPMOVVec<E>x<N>ToM and
     VPMOVMToVec<E>x<N> mask conversions in lowerings must match the
@@ -163,6 +167,7 @@ func run(pass *analysis.Pass) error {
 			}
 			if r.Match.Op.IsGeneric() {
 				c.checkLowering(r)
+				c.checkMaskSem(r)
 			} else {
 				c.checkFusion(r)
 				c.checkMaskSem(r)

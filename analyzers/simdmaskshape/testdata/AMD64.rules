@@ -33,14 +33,45 @@
 (VPBLENDVB128 x y (VPMOVMToVec8x16 k)) => (VPBLENDMBMasked128 y x k) // want `operand order: \(VPBLENDVB128 x y \(VPMOVMToVec8x16 k\)\) selects y where \(VPMOVMToVec8x16 k\) is set and x elsewhere, but the result \(VPBLENDMBMasked128 y x k\) selects x there and y elsewhere`
 (VPAND128 x (VPMOVMToVec16x8 k)) => (VMOVDQU8Masked128 x k) // want `mask: .* selects by \(VPMOVMToVec16x8 k\), but the result \(VMOVDQU8Masked128 x k\) selects by k read as one bit per 8-bit lane, which differ in bits 8..15`
 
+// Generic Masked and IfElse lowerings: x.Masked(mask) is mask ? x : 0 and
+// x.IfElse(mask, y) is mask ? x : y, with mask's lanes all ones or all zeros.
+(Masked8 <t> x mask) && t.Size() == 16 => (VPAND128 x mask)
+(Masked8 <t> x mask) && t.Size() == 32 => x // want `mask dropped: \(Masked8 <t> x mask\) selects x where mask \(a Mask8x32\) is set and 0 elsewhere, but the result x ignores the mask`
+(Masked16 <t> x mask) && t.Size() == 32 => (VPAND256 x x) // want `mask dropped: .* but the result \(VPAND256 x x\) ignores the mask`
+(Masked16 <t> x mask) && t.Size() == 64 => (VPANDD512 mask x)
+(Masked32 <t> x mask) && t.Size() == 16 => (VPAND256 x mask) // want `lowering shape: Masked32 with t.Size\(\) == 16 is a 128-bit vector, but VPAND256 produces Vec256`
+// Only top-level && terms of the condition give the size.
+(Masked32 <t> x mask) && !(t.Size() == 16) && t.Size() == 32 => (VPAND256 x mask)
+(MaskedFloat64 <t> x mask) && t.Size() == 16 => (VANDPD128 x mask)
+(MaskedFloat32 <t> x mask) && t.Size() == 64 => (VMOVDQU32Masked512 x (VPMOVVec32x16ToM <types.TypeMask> mask))
+(MaskedFloat64 <t> x mask) && t.Size() == 64 => (VMOVDQU32Masked512 x (VPMOVVec32x16ToM <types.TypeMask> mask))
+(IfElse8 <t> x mask y) && t.Size() == 16 => (VPBLENDVB128 y x mask)
+(IfElse8 <t> x mask y) && t.Size() == 32 => (VPBLENDVB256 x y mask) // want `operand order: \(IfElse8 <t> x mask y\) selects x where mask \(a Mask8x32\) is set and y elsewhere, but the result \(VPBLENDVB256 x y mask\) selects y there and x elsewhere`
+(IfElse8 <t> x mask y) && t.Size() == 64 => (VPBLENDMWMasked512 y x (VPMOVVec16x32ToM <types.TypeMask> mask)) // want `mask granularity: VPMOVVec16x32ToM reads the top bit of each 16-bit lane, but its mask mask \(a Mask8x64\) has 8-bit lanes, so it ignores 1 of every 2 of them`
+(IfElse16 <t> x mask y) && t.Size() == 64 => (VPBLENDMWMasked512 y x (VPMOVVec8x64ToM <types.TypeMask> mask)) // want `mask lane width: VPBLENDMWMasked512 takes one mask bit per 16-bit lane, but its mask \(VPMOVVec8x64ToM <types.TypeMask> mask\) has one bit per 8-bit lane`
+(IfElse32 <t> x mask y) && t.Size() == 64 => (VPBLENDMBMasked512 y x (VPMOVVec8x64ToM <types.TypeMask> mask))
+(IfElse64 <t> x mask y) && t.Size() == 64 => (VPBLENDMQMasked512 y x (VPMOVVec64x2ToM <types.TypeMask> mask)) // want `mask lanes: VPBLENDMQMasked512 takes 8 mask bits, but its mask \(VPMOVVec64x2ToM <types.TypeMask> mask\) has 2`
+(IfElseFloat32 <t> x mask y) && t.Size() == 16 => (VBLENDVPD128 y x mask) // want `mask granularity: VBLENDVPD128 reads the top bit of each 64-bit lane, but its mask mask \(a Mask32x4\) has 32-bit lanes`
+(IfElseFloat64 <t> x mask y) && t.Size() == 32 => (VBLENDVPS256 y x mask)
+(IfElseFloat32 <t> x mask y) && t.Size() == 64 => (VPBLENDMDMasked512 x y (VPMOVVec32x16ToM <types.TypeMask> mask)) // want `operand order: .* selects x where mask \(a Mask32x16\) is set and y elsewhere, but the result .* selects y there and x elsewhere`
+
 // Rewrites that are sound, though written differently.
+(IfElse(8|16|32|64) <t> x mask x) && t.Size() == 16 => x
 (VPBLENDVB256 x y c:(VPCMPGTD256 p q)) && c.Uses == 1 => (VPBLENDMDMasked256 x y (VPCMPD256 [1] q p))
 (VBLENDVPS128 x y c:(VCMPPS128 [pred] p q)) && pred == 3 && c.Uses == 1 => (VPBLENDMDMasked128 x y (VCMPPS128k [3] p q))
 (VPBLENDVB128 x y c:(VPCMPEQD128 p q)) && c.Uses == 1 => (VPBLENDMDMasked128 x y (VPCMPD128 [0+0] p q))
 (VBLENDVPD128 x y c:(VPCMPEQD128 p q)) && c.Uses == 1 => (VPBLENDMQMasked128 x y (VPMOVVec64x2ToM <types.TypeMask> c))
 (VBLENDVPS128 x y c:(VCMPPS128 [pred] u w)) && c.Uses == 1 => (VPBLENDMDMasked128 x y (VCMPPS128k [pred^1^1] u w))
 
+// Wrong selected values, with the right mask.
+(IfElse8 <t> x mask y) && t.Size() == 16 => (VPAND128 x mask) // want `selected value: where mask \(a Mask8x16\) is clear, \(IfElse8 <t> x mask y\) gives y, but the result \(VPAND128 x mask\) gives 0`
+(IfElse16 <t> x mask y) && t.Size() == 16 => (VPBLENDVB128 y mask mask) // want `selected value: where mask \(a Mask16x8\) is set, \(IfElse16 <t> x mask y\) gives x, but the result \(VPBLENDVB128 y mask mask\) gives mask`
+(Masked32 <t> x mask) && t.Size() == 16 => (VPAND128 mask mask) // want `selected value: where mask \(a Mask32x4\) is set, \(Masked32 <t> x mask\) gives x, but the result \(VPAND128 mask mask\) gives mask`
+
 // A select by something other than the mask drops it.
+(IfElse8 <t> x mask y) && t.Size() == 16 => (VPBLENDVB128 y x x) // want `mask dropped: \(IfElse8 <t> x mask y\) selects x where mask \(a Mask8x16\) is set and y elsewhere, but the result \(VPBLENDVB128 y x x\) ignores the mask`
+(Masked8 <t> x mask) && t.Size() == 16 => (VMOVDQU8Masked128 x (VPMOVVec8x16ToM <types.TypeMask> x)) // want `mask dropped: \(Masked8 <t> x mask\) selects x where mask \(a Mask8x16\) is set and 0 elsewhere`
+(IfElse64 <t> x mask y) && t.Size() == 32 => (VPADDQ256 x y) // want `mask dropped: .* but the result \(VPADDQ256 x y\) ignores the mask`
 (VPBLENDVB128 x y (VPMOVMToVec8x16 k)) => (VPBLENDMBMasked128 x y (VPMOVVec8x16ToM <types.TypeMask> y)) // want `mask dropped: \(VPBLENDVB128 x y \(VPMOVMToVec8x16 k\)\) selects y where \(VPMOVMToVec8x16 k\) is set and x elsewhere, but the result .* ignores the mask`
 (VPBLENDVB128 x y c:(VPCMPEQD128 p q)) && c.Uses == 1 => (VPBLENDMDMasked128 x y (VPCMPD128 [0] x y)) // want `mask dropped: .* selects y where \(VPCMPEQD128 p q\) is set and x elsewhere, but the result .* ignores the mask`
 
