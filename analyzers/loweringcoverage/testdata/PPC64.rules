@@ -20,7 +20,7 @@
 
 // Zero lowering that depends on GOPPC64 leaves power9 without a rule
 // for large sizes.
-(Zero [s] ptr mem) && buildcfg.GOPPC64 <= 8 => (LoweredZero [s] ptr (Zero128 <typ.Vec128>) mem) // want `\(Zero \[s\] \{t\} ptr mem\): s=128 t.Alignment\(\)=1 GOPPC64=9;`
+(Zero [s] ptr mem) && buildcfg.GOPPC64 <= 8 => (LoweredZero [s] ptr mem) // want `\(Zero \[s\] \{t\} ptr mem\): s=128 t.Alignment\(\)=1 GOPPC64=9;`
 (Zero [s] ptr mem) && s < 128 && buildcfg.GOPPC64 >= 9 => (LoweredQuadZeroShort [s] ptr (Zero128 <typ.Vec128>) mem)
 (Zero [s] ptr mem) && buildcfg.GOPPC64 >= 10 => (LoweredQuadZero [s] ptr (Zero128 <typ.Vec128>) mem)
 
