@@ -27,13 +27,18 @@ import (
 //   - compares, into vectors (VPCMPEQ<X>, VPCMPGT<X>, VCMPP<S|D>) or K
 //     masks (VPCMP[U]<X> [pred], VPCMPEQ<X>512, VCMPP<S|D>k [pred], ...);
 //   - mask conversions VPMOVVec<E>x<N>ToM and VPMOVMToVec<E>x<N>;
-//   - bitwise AND (VPAND, VPANDD, VPANDQ, VANDPS, VANDPD) and Zero.
+//   - bitwise AND, OR, XOR, and ANDN of vectors (VPAND, VPANDD, VANDPS,
+//     VPOR, ...) and Zero;
+//   - K mask logic: KAND, KANDN, KOR, KXOR, KXNOR, and KNOT<B|W|D|Q>,
+//     which write the low 8, 16, 32, or 64 bits and zero the rest.
 //
-// Operand order is that of amd64/ssa.go, which emits operands in reverse
-// (Intel order dst, arg0, arg1, arg2): VPBLENDVB and VBLENDVP<S|D> by
-// simdV31, VPBLENDM by simdV2kv, VPCMP<X> [imm] and VCMPP<S|D> by
-// simdV2kImm8 and simdV21Imm8, VPCMPEQ/GT by simdV21 and simdV2k. So
-// (VPCMPGTD128 p q) is p > q and (VPCMPD128 [6] p q) is p NLE q.
+// Operand order is that of amd64/ssa.go, which emits vector operands in
+// reverse (Intel order dst, arg0, arg1, arg2): VPBLENDVB and
+// VBLENDVP<S|D> by simdV31, VPBLENDM by simdV2kv, VPCMP<X> [imm] and
+// VCMPP<S|D> by simdV2kImm8 and simdV21Imm8, VPCMPEQ/GT and VPANDN by
+// simdV21 and simdV2k. So (VPCMPGTD128 p q) is p > q, (VPCMPD128 [6] p q)
+// is p NLE q, and (VPANDN128 a b) is ^a & b. It emits K logic ops in
+// order (Intel dst, arg1, arg0), so (KANDNW a b) is a &^ b.
 //
 // Any other op's value is unknown, and so is every lane computed from
 // it, unless it doesn't matter: a select between equal values, or a
@@ -114,6 +119,7 @@ const (
 	blendKOp         // VPBLENDM<X>Masked a b k: k ? b : a
 	blendVOp         // VPBLENDVB, VBLENDVP<S|D> a b m: top bit of m ? b : a
 	bitOp            // bitwise ops on vectors
+	kLogicOp         // bitwise ops on mask registers
 )
 
 // An opInfo is what the evaluator knows of an op.
@@ -123,9 +129,9 @@ type opInfo struct {
 	// w is the lane width: of a compare's elements, a select's lanes,
 	// or a conversion's lanes.
 	w     int
-	lanes int    // toKOp, toVecOp: the number of lanes converted
-	cmp   cmpDom // cmpOp
-	fn    func(a, b uint64) uint64
+	lanes int                      // toKOp, toVecOp: the number of lanes converted; kLogicOp: the bits written
+	cmp   cmpDom                   // cmpOp
+	fn    func(a, b uint64) uint64 // bitOp, kLogicOp
 }
 
 // A cmpDom is what a compare op compares.
@@ -150,7 +156,23 @@ var bitOps = []struct {
 	fn func(a, b uint64) uint64
 }{
 	{andRE, func(a, b uint64) uint64 { return a & b }},
+	{regexp.MustCompile(`^(?:VPANDN[DQ]?|VANDNP[SD])$`), func(a, b uint64) uint64 { return ^a & b }},
+	{regexp.MustCompile(`^(?:VPOR[DQ]?|VORP[SD])$`), func(a, b uint64) uint64 { return a | b }},
+	{regexp.MustCompile(`^(?:VPXOR[DQ]?|VXORP[SD])$`), func(a, b uint64) uint64 { return a ^ b }},
 }
+
+// kLogicRE matches the K mask logic ops; kLogicFns are their functions.
+var (
+	kLogicRE  = regexp.MustCompile(`^K(AND|ANDN|OR|XOR|XNOR|NOT)([BWDQ])$`)
+	kLogicFns = map[string]func(a, b uint64) uint64{
+		"AND":  func(a, b uint64) uint64 { return a & b },
+		"ANDN": func(a, b uint64) uint64 { return a &^ b },
+		"OR":   func(a, b uint64) uint64 { return a | b },
+		"XOR":  func(a, b uint64) uint64 { return a ^ b },
+		"XNOR": func(a, b uint64) uint64 { return ^(a ^ b) },
+		"NOT":  func(a, _ uint64) uint64 { return ^a },
+	}
+)
 
 // opBits returns the vector width of op: its typ's, or for an op of typ
 // Mask, the width in its name.
@@ -187,6 +209,12 @@ func classify(op *ops.Op, n int) opInfo {
 			l, _ := strconv.Atoi(m[4])
 			return opInfo{kind: toVecOp, bits: w * l, w: w, lanes: l}
 		}
+	}
+	if m := kLogicRE.FindStringSubmatch(op.Asm); m != nil {
+		if m[1] == "NOT" && n != 1 || m[1] != "NOT" && n != 2 {
+			return opInfo{}
+		}
+		return opInfo{kind: kLogicOp, lanes: bwdqWidth[m[2]], fn: kLogicFns[m[1]]}
 	}
 	bits := opBits(op)
 	if bits == 0 {
@@ -526,7 +554,7 @@ func (in *interp) eval(v *rules.Value, isK bool) val {
 	}
 	info := classify(v.Op, len(v.Args))
 	arg := func(i int) val {
-		return in.eval(v.Args[i], info.kind == maskMovOp && i == 1 || info.kind == blendKOp && i == 2 || info.kind == toVecOp)
+		return in.eval(v.Args[i], info.kind == maskMovOp && i == 1 || info.kind == blendKOp && i == 2 || info.kind == toVecOp || info.kind == kLogicOp)
 	}
 	var out val
 	w := info.w
@@ -601,6 +629,13 @@ func (in *interp) eval(v *rules.Value, isK bool) val {
 				}
 			}
 		}
+	case kLogicOp:
+		a, b := arg(0), val{}
+		if len(v.Args) > 1 {
+			b = arg(1)
+		}
+		z, diff := bitwise(info.fn, a.k, a.ku, b.k, b.ku)
+		out.k, out.ku = z&ones(info.lanes), diff&ones(info.lanes)
 	default:
 		return unknown()
 	}

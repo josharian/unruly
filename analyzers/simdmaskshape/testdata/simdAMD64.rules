@@ -92,3 +92,6 @@
 // variable the op and masks don't use; max(dst, dst) is dst.
 (VPBLENDMDMasked128 dst (VPMAXSD128 dst dst) mask) => (VPMAXSDMasked128Merging dst dst dst (VPMOVVec32x4ToM <types.TypeMask> (VPMOVMToVec64x2 <types.TypeVec128> mask)))
 (VPBLENDMDMasked128 dst (VPADDD128 x y) (VPCMPD128 [3] p q)) => (VPADDDMasked128Merging dst x y (VPCMPD128 [7] p q)) // want `fused mask: .* masks by \(VPCMPD128 \[7\] p q\), whose bit \d is 1 when \(VPCMPD128 \[3\] p q\)'s is 0`
+
+// K logic in a fused mask.
+(VPBLENDMDMasked128 dst (VPADDD128 x y) mask) => (VPADDDMasked128Merging dst x y (KNOTB mask)) // want `fused mask: VPBLENDMDMasked128 selects lane i by bit i of mask, but VPADDDMasked128Merging masks by \(KNOTB mask\), whose bit \d is \d when mask's is \d`

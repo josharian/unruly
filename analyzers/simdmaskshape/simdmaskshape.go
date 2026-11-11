@@ -68,7 +68,8 @@ element i by m[i/2]. The checks:
     its granularity.
   - Mask semantics: a rule whose match is a modeled op (a select such as
     a blend, VMOVDQU<E>Masked, or an AND with a vector mask; a compare;
-    or a mask conversion) must compute the same value in its result.
+    a mask conversion; or vector or K mask logic) must compute the same
+    value in its result.
     Both sides are evaluated lane by lane on sampled inputs, for values
     of the rule's integer variables that its condition allows (all of
     them if there are few, else a sample with each variable's small and

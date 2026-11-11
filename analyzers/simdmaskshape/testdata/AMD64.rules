@@ -107,3 +107,47 @@
 (VPCMPEQD128 p q) && v.Args[0] == v.Args[1] => (VCMPPS128 [15] (Zero128 <types.TypeVec128>) (Zero128 <types.TypeVec128>))
 (VPBLENDVB128 x y mask) && v.Args[0] == v.Args[1] => x
 (VPBLENDVB128 x y mask) && len(v.Block.Values) == 1 && v.Block.Values[0].Args[0] == v.Block.Values[0].Args[1] => x
+
+
+// Mask logic of compares, as in the IsNaN folds: VCMPP predicate 3
+// (UNORD) is isNaN(p) || isNaN(q), and 7 (ORD) is !isNaN(p) && !isNaN(q).
+(VPOR128 (VCMPPS128 [3] x x) (VCMPPS128 [3] y y)) => (VCMPPS128 [3] x y)
+(VPORD512 (VPMOVMToVec64x8 (VCMPPD512 [3] x x)) (VPMOVMToVec64x8 (VCMPPD512 [3] y y))) => (VPMOVMToVec64x8 (VCMPPD512 [3] x y))
+(KORW (VCMPPS512 [3] x x) (VCMPPS512 [3] y y)) => (VCMPPS512 [3] x y)
+(KANDB (VCMPPD512 [7] x x) (VCMPPD512 [7] y y)) => (VCMPPD512 [7] x y)
+(KANDW (VCMPPS512 [3] x x) (VCMPPS512 [3] x y)) => (VCMPPS512 [3] x x)
+(KANDB (VCMPPD512 [3] x x) (VCMPPD512 [3] y y)) => (VCMPPD512 [3] x x) // want `lane-wise: \(KANDB \(VCMPPD512 \[3\] x x\) \(VCMPPD512 \[3\] y y\)\) clears mask bit \d, but the result \(VCMPPD512 \[3\] x x\) sets it, where x = NaN, y = [^N]`
+(KANDW (VCMPPS512 [3] x x) (VCMPPS512 [3] y y)) => (VCMPPS512 [3] x y) // want `clears mask bit \d+, but the result \(VCMPPS512 \[3\] x y\) sets it, where x = .*, y = `
+(VPAND128 (VCMPPS128 [7] x x) (VCMPPS128 [7] y y)) => (VCMPPS128 [3] x y) // want `(sets|clears) 32-bit lane \d, but the result \(VCMPPS128 \[3\] x y\) (clears|sets) it, where x = \S+, y = \S+`
+(VPOR256 (VCMPPD256 [3] x x) (VCMPPD256 [3] y y)) => (VCMPPS256 [3] x y) // want `gives \S+ in 64-bit lane \d, but the result \(VCMPPS256 \[3\] x y\) gives 0x\S*ffffffff`
+
+// K mask logic must keep every lane, and KANDN is arg0 &^ arg1 where
+// VPANDN is ^arg0 & arg1.
+(VPAND256 (VPMOVMToVec16x16 (VPCMPW256 [0] p q)) (VPMOVMToVec16x16 (VPCMPW256 [1] p q))) => (VPMOVMToVec16x16 (KANDW (VPCMPW256 [0] p q) (VPCMPW256 [1] p q)))
+(VPANDN128 (VPMOVMToVec16x8 x) (VPMOVMToVec16x8 y)) => (VPMOVMToVec16x8 (KANDNB y x))
+(KXORW x (KXNORW y y)) => (KNOTW x)
+(VPAND128 (VPMOVMToVec8x16 (VPCMPB128 [0] p q)) (VPMOVMToVec8x16 (VPCMPB128 [2] p q))) => (VPMOVMToVec8x16 (KANDB (VPCMPB128 [0] p q) (VPCMPB128 [2] p q))) // want `mask lanes: KANDB keeps 8 mask bits, but its operand \(VPCMPB128 \[0\] p q\) has 16`
+(VPAND128 (VPMOVMToVec8x16 x) (VPMOVMToVec8x16 y)) => (VPMOVMToVec8x16 (KANDB x y)) // want `mask lanes: VPMOVMToVec8x16 takes 16 mask bits, but its mask \(KANDB x y\) has 8`
+(KORW x y) => (KANDB x y) // want `lane-wise: \(KORW x y\) sets mask bit \d+, but the result \(KANDB x y\) clears it, where x.s bit \d+ = \d, y.s bit \d+ = \d`
+(VPANDN128 (VPMOVMToVec16x8 x) (VPMOVMToVec16x8 y)) => (VPMOVMToVec16x8 (KANDNB x y)) // want `(sets|clears) 16-bit lane \d, but the result \(VPMOVMToVec16x8 \(KANDNB x y\)\) (clears|sets) it, where x.s bit \d = \d, y.s bit \d = \d`
+
+// K values of unmodeled ops are unknown: KMOVWk of 0 is 0.
+(KANDW x (KMOVWk (MOVLconst [0]))) => (KXORW x x)
+(KORD (KMOVDk a) (KXNORD y y)) => (KXNORD y y)
+// Bits above a mask's lanes are unspecified: a K value is read only at
+// its type's lanes, as the identities (VPMOVVec<E>x<N>ToM
+// (VPMOVMToVec<E>x<N> x)) => x assume.
+(KNOTB (VCMPPD128k [0] p q)) => (VCMPPD128k [4] p q)
+// Reading them takes a read at other lanes, which is reported as such.
+(VPMOVMToVec8x16 (KNOTB (VCMPPD128k [0] p q))) => (VPMOVMToVec8x16 (VCMPPD128k [4] p q)) // want `mask lane width: VPMOVMToVec8x16 takes one mask bit per 8-bit lane, but its mask \(VCMPPD128k \[4\] p q\) has one bit per 64-bit element`
+// The first trials are all zeros and all ones.
+(KANDQ (KANDQ (KANDQ (KANDQ (KANDQ (KANDQ (KANDQ (KANDQ (KANDQ (KANDQ m0 m1) m2) m3) m4) m5) m6) m7) m8) m9) m10) => (KXORQ m0 m0) // want `lane-wise: .* sets mask bit \d+, but the result \(KXORQ m0 m0\) clears it`
+
+// A K variable's bits above the other operands' lanes are unspecified:
+// predicate 4 (NEQ_UQ) is the complement of 0 (EQ_OQ) in the two lanes.
+(KANDB (VCMPPD128k [0] p q) k) => (KANDNB k (VCMPPD128k [4] p q))
+(KANDB k (VCMPPD128k [0] p q)) => (KANDNB k (VCMPPD128k [4] p q))
+(KNOTB (KANDB (VCMPPD128k [0] p q) k)) => (KORB (VCMPPD128k [4] p q) (KNOTB k))
+(KNOTB (KANDB k (VCMPPD128k [0] p q))) => (KORB (KNOTB k) (VCMPPD128k [4] p q))
+// But they are compared in the lanes there are.
+(KANDB (VCMPPD128k [0] p q) k) => (KANDNB k (VCMPPD128k [0] p q)) // want `lane-wise: \(KANDB \(VCMPPD128k \[0\] p q\) k\) (sets|clears) mask bit [01], but the result`

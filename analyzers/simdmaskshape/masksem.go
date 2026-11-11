@@ -728,11 +728,11 @@ func (in *interp) vecLane(v *rules.Value) int {
 	case toVecOp:
 		return info.w
 	case bitOp:
-		if andRE.MatchString(v.Op.Asm) {
-			a, b := in.vecLane(v.Args[0]), in.vecLane(v.Args[1])
-			if a != 0 && b != 0 {
-				return min(a, b)
-			}
+		// Each lane of a bitwise op of two such vectors is a function
+		// of uniform lanes.
+		a, b := in.vecLane(v.Args[0]), in.vecLane(v.Args[1])
+		if a != 0 && b != 0 {
+			return min(a, b)
 		}
 	}
 	return 0
@@ -753,6 +753,30 @@ func (in *interp) kShape(v *rules.Value) (lane, lanes int) {
 		return info.w, info.bits / info.w
 	case toKOp:
 		return info.w, info.lanes
+	case kLogicOp:
+		// The fewest lanes of its operands of known shape, and their
+		// lane width if they agree, at most the bits it writes. Bits
+		// above a K value's lanes are unspecified, as AMD64.rules'
+		// (VPMOVVec<E>x<N>ToM (VPMOVMToVec<E>x<N> x)) => x assumes, so
+		// ones that KNOT or KXNOR sets there don't count, and neither
+		// do the bits of an operand of unknown shape, such as a
+		// variable, above the others' lanes.
+		lanes = info.lanes
+		first := true
+		for _, a := range v.Args {
+			l, n := in.kShape(a)
+			if n == 0 {
+				continue
+			}
+			if first {
+				lane = l
+			} else if l != lane {
+				lane = 0
+			}
+			first = false
+			lanes = min(lanes, n)
+		}
+		return lane, lanes
 	}
 	return 0, 0
 }
@@ -811,6 +835,12 @@ func (in *interp) probs(v *rules.Value) []string {
 			consume(v.Args[2], info.bits/info.w)
 		case toVecOp:
 			consume(v.Args[0], info.lanes)
+		case kLogicOp:
+			for _, a := range v.Args {
+				if _, n := in.kShape(a); n > info.lanes {
+					add("mask lanes: %s keeps %d mask bits, but its operand %s has %d", v.Op.Name, info.lanes, a.Text, n)
+				}
+			}
 		}
 		return true
 	})
