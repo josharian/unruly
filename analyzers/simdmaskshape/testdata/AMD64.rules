@@ -1,0 +1,78 @@
+// Compares into K masks, as on tip: sound.
+(VPBLENDVB128 x y c:(VPCMPEQD128 p q)) && c.Uses == 1 => (VPBLENDMDMasked128 x y (VPCMPD128 [0] p q))
+(VPBLENDVB256 x y c:(VPCMPGTW256 p q)) && c.Uses == 1 => (VPBLENDMWMasked256 x y (VPCMPW256 [6] p q))
+(VPBLENDVB128 x y c:(VCMPPD128 [pred] p q)) && c.Uses == 1 => (VPBLENDMQMasked128 x y (VCMPPD128k [pred] p q))
+(VBLENDVPS256 x y c:(VPCMPEQD256 p q)) && c.Uses == 1 => (VPBLENDMDMasked256 x y (VPCMPD256 [0] p q))
+(VBLENDVPD128 x y c:(VCMPPD128 [pred] p q)) && c.Uses == 1 => (VPBLENDMQMasked128 x y (VCMPPD128k [pred] p q))
+(VPAND128 x c:(VPCMPGTB128 p q)) && c.Uses == 1 => (VPAND128 x (VPMOVMToVec8x16 <types.TypeVec128> (VPCMPB128 [6] p q)))
+(VANDPD256 x c:(VCMPPD256 [pred] p q)) && c.Uses == 1 => (VMOVDQU64Masked256 x (VCMPPD256k [pred] p q))
+(VPBLENDVB128 x y (VPMOVMToVec16x8 k)) => (VPBLENDMWMasked128 x y k)
+(VANDPS128 x (VPMOVMToVec32x4 k)) => (VMOVDQU32Masked128 x k)
+(VPANDD512 x (VPMOVMToVec8x64 k)) => (VMOVDQU8Masked512 x k)
+// The predicate may change if it means the same.
+(VPBLENDMQMasked512 x y (VPCMPEQQ512 p q)) => (VPBLENDMQMasked512 x y (VPCMPUQ512 [0] q p))
+
+// The K mask's lanes must be the blend's.
+(VPBLENDVB128 x y c:(VPCMPEQW128 p q)) && c.Uses == 1 => (VPBLENDMBMasked128 x y (VPCMPW128 [0] p q)) // want `mask lane width: VPBLENDMBMasked128 takes one mask bit per 8-bit lane, but its mask \(VPCMPW128 \[0\] p q\) has one bit per 16-bit element, so lane i is selected by element i instead of element i/2`
+(VPBLENDVB256 x y c:(VPCMPEQB256 p q)) && c.Uses == 1 => (VPBLENDMQMasked256 x y (VPCMPB256 [0] p q)) // want `VPBLENDMQMasked256 takes one mask bit per 64-bit lane, .* one bit per 8-bit element, so lane i is selected by element i instead of elements 8\*i..8\*i\+7`
+(VPAND256 x c:(VPCMPEQD256 p q)) && c.Uses == 1 => (VPAND256 x (VPMOVMToVec64x4 <types.TypeVec256> (VPCMPD256 [0] p q))) // want `mask lane width: VPMOVMToVec64x4 takes one mask bit per 64-bit lane`
+(VANDPS256 x c:(VPCMPEQD256 p q)) && c.Uses == 1 => (VMOVDQU32Masked256 x (VPCMPD128 [0] p q)) // want `mask lanes: VMOVDQU32Masked256 takes 8 mask bits, but its mask \(VPCMPD128 \[0\] p q\) has 4`
+
+// The compare must compute the same predicate on the same operands.
+(VPBLENDVB256 x y c:(VPCMPEQB256 p q)) && c.Uses == 1 => (VPBLENDMBMasked256 x y (VPCMPB256 [6] p q)) // want `compare: \(VPBLENDVB256 x y c:\(VPCMPEQB256 p q\)\) selects by \(VPCMPEQB256 p q\), p == q on 8-bit integers, but the result's \(VPCMPB256 \[6\] p q\) computes p > q on signed 8-bit integers`
+(VPBLENDVB256 x y c:(VPCMPGTD256 p q)) && c.Uses == 1 => (VPBLENDMDMasked256 x y (VPCMPD256 [6] q p)) // want `p > q on signed 32-bit integers, but .* computes q > p on signed 32-bit integers`
+(VPBLENDMDMasked512 x y (VPCMPGTD512 p q)) => (VPBLENDMDMasked512 x y (VPCMPUD512 [6] p q)) // want `computes p > q on unsigned 32-bit integers`
+(VPBLENDVB128 x y c:(VCMPPS128 [pred] p q)) && c.Uses == 1 => (VPBLENDMDMasked128 x y (VCMPPS128k [1] p q)) // want `VCMPP predicate pred = 0 \(EQ_OQ\) of p, q on float32 elements, but .* computes VCMPP predicate 1 \(LT_OS\) of p, q on float32 elements: they differ where p = \S+ and q = \S+`
+(VBLENDVPS128 x y c:(VPCMPEQD128 p q)) && c.Uses == 1 => (VPBLENDMDMasked128 x y (VCMPPS128k [0] p q)) // want `p == q on 32-bit integers, but .* computes VCMPP predicate 0 \(EQ_OQ\) of p, q on float32 elements: they differ where p = 0 \(0\) and q = 0x80000000 \(-0\)`
+(VPBLENDVB256 x y c:(VPCMPEQQ256 p q)) && c.Uses == 1 => (VPBLENDMDMasked256 x y (VPCMPD256 [0] p q)) // want `p == q on 64-bit integers, but .* computes p == q on 32-bit integers`
+
+// A vector blend must not read fewer mask bits than the compare sets.
+(VBLENDVPD128 x y c:(VPCMPEQD128 p q)) && c.Uses == 1 => (VPBLENDMDMasked128 x y (VPCMPD128 [0] p q)) // want `mask granularity: \(VBLENDVPD128 x y c:\(VPCMPEQD128 p q\)\) selects 64-bit lanes by \(VPCMPEQD128 p q\), p == q on 32-bit integers, but the result .* selects 32-bit lanes by it`
+
+// Operand order and reinterpreted K masks.
+(VPBLENDVB128 x y (VPMOVMToVec8x16 k)) => (VPBLENDMBMasked128 y x k) // want `operand order: \(VPBLENDVB128 x y \(VPMOVMToVec8x16 k\)\) selects y where \(VPMOVMToVec8x16 k\) is set and x elsewhere, but the result \(VPBLENDMBMasked128 y x k\) selects x there and y elsewhere`
+(VPAND128 x (VPMOVMToVec16x8 k)) => (VMOVDQU8Masked128 x k) // want `mask: .* selects by \(VPMOVMToVec16x8 k\), but the result \(VMOVDQU8Masked128 x k\) selects by k read as one bit per 8-bit lane, which differ in bits 8..15`
+
+// Rewrites that are sound, though written differently.
+(VPBLENDVB256 x y c:(VPCMPGTD256 p q)) && c.Uses == 1 => (VPBLENDMDMasked256 x y (VPCMPD256 [1] q p))
+(VBLENDVPS128 x y c:(VCMPPS128 [pred] p q)) && pred == 3 && c.Uses == 1 => (VPBLENDMDMasked128 x y (VCMPPS128k [3] p q))
+(VPBLENDVB128 x y c:(VPCMPEQD128 p q)) && c.Uses == 1 => (VPBLENDMDMasked128 x y (VPCMPD128 [0+0] p q))
+(VBLENDVPD128 x y c:(VPCMPEQD128 p q)) && c.Uses == 1 => (VPBLENDMQMasked128 x y (VPMOVVec64x2ToM <types.TypeMask> c))
+(VBLENDVPS128 x y c:(VCMPPS128 [pred] u w)) && c.Uses == 1 => (VPBLENDMDMasked128 x y (VCMPPS128k [pred^1^1] u w))
+
+// A select by something other than the mask drops it.
+(VPBLENDVB128 x y (VPMOVMToVec8x16 k)) => (VPBLENDMBMasked128 x y (VPMOVVec8x16ToM <types.TypeMask> y)) // want `mask dropped: \(VPBLENDVB128 x y \(VPMOVMToVec8x16 k\)\) selects y where \(VPMOVMToVec8x16 k\) is set and x elsewhere, but the result .* ignores the mask`
+(VPBLENDVB128 x y c:(VPCMPEQD128 p q)) && c.Uses == 1 => (VPBLENDMDMasked128 x y (VPCMPD128 [0] x y)) // want `mask dropped: .* selects y where \(VPCMPEQD128 p q\) is set and x elsewhere, but the result .* ignores the mask`
+
+// Operands are named as written.
+(VPBLENDVB128 x y c:(VCMPPS128 [pred] u w)) && c.Uses == 1 => (VPBLENDMDMasked128 x y (VCMPPS128k [pred^1] u w)) // want `compare: .* VCMPP predicate pred = \d+ \(\w+\) of u, w on float32 elements, but the result's \(VCMPPS128k \[pred\^1\] u w\) computes VCMPP predicate pred\^1 = \d+ \(\w+\) of u, w on float32 elements: they differ where u = \S+ and w = \S+`
+
+// Unmodeled ops' values are unknown, not arbitrary: VPSUBD p p is 0.
+(VPBLENDVB128 x y (VPSUBD128 p p)) => x
+(VPCMPEQD128 (VPSUBD128 p p) (Zero128)) => (VPCMPEQD128 p p)
+(VPBLENDVB128 x x (VPSUBD128 p q)) => x
+// Known lanes still count: where m is 0, so is the mask.
+(VPBLENDVB128 x y (VPAND128 m (VPADDD128 p q))) => (VPBLENDVB128 y x (VPAND128 m (VPADDD128 p q))) // want `operand order: .* selects y where \(VPAND128 m \(VPADDD128 p q\)\) is set and x elsewhere, but the result .* selects x there and y elsewhere`
+
+// Integer variables over their whole type, or near its edges.
+(VPBLENDVB128 x x (VPBROADCASTQ128 (VMOVQ <types.TypeVec128> (MOVQconst [c])))) => x
+(VPBLENDVB128 x y (VPBROADCASTQ128 (VMOVQ <types.TypeVec128> (MOVQconst [c])))) && c > math.MaxInt64-3 => x
+
+// Each _ is a different value; x x is the same one.
+(VPCMPEQD128 _ _) && v.Block.CPUfeatures.HasFeature(ssa.CPUavx512) => (VCMPPS128 [15] (Zero128 <types.TypeVec128>) (Zero128 <types.TypeVec128>)) // want `lane-wise: \(VPCMPEQD128 _ _\) clears 32-bit lane \d+, but the result .* sets it`
+(VPCMPEQD128 x x) && v.Block.CPUfeatures.HasFeature(ssa.CPUavx512) => (VCMPPS128 [15] (Zero128 <types.TypeVec128>) (Zero128 <types.TypeVec128>))
+
+// Every value of each predicate is tried, within the condition's range.
+(VPAND128 (VPAND128 (VCMPPS128 [aa] p q) (VCMPPS128 [bb] p q)) (VCMPPS128 [cc] p q)) && aa < 32 && bb < 32 && cc < 32 => (VANDPS128 (VANDPS128 (VCMPPS128 [aa] p q) (VCMPPS128 [bb] p q)) (VCMPPS128 [cc&3] p q)) // want `lane-wise: .* sets 32-bit lane \d+, but the result .* clears it, where p = \S+, q = \S+, aa = \d+, bb = \d+, cc = \d+`
+(VPAND128 (VPAND128 (VCMPPS128 [aa] p q) (VCMPPS128 [bb] p q)) (VCMPPS128 [cc] p q)) && aa < 32 && bb < 32 && cc < 32 => (VANDPS128 (VANDPS128 (VCMPPS128 [aa] p q) (VCMPPS128 [bb] p q)) (VCMPPS128 [cc] p q))
+(VPBLENDVB128 x y c:(VCMPPS128 [pred] u w)) && pred >= 16 && pred < 32 && c.Uses == 1 => (VPBLENDMDMasked128 x y (VCMPPS128k [pred^1] u w)) // want `compare: .* VCMPP predicate pred = (16 \(EQ_OS\)|17 \(LT_OQ\)|18 \(LE_OQ\)|19 \(UNORD_S\)|20 \(NEQ_US\)|21 \(NLT_UQ\)|22 \(NLE_UQ\)|23 \(ORD_S\)|24 \(EQ_US\)|25 \(NGE_UQ\)|26 \(NGT_UQ\)|27 \(FALSE_OS\)|28 \(NEQ_OS\)|29 \(GE_OQ\)|30 \(GT_OQ\)|31 \(TRUE_US\)) of u, w`
+
+// Go expressions in results are unknown, and may use any match value.
+(VPBLENDVB128 x y (Zero128)) => v.Args[0]
+(VPBLENDVB128 a:(VPAND128 p p) y (Zero128)) => (VPAND128 a.Args[0] a.Args[0])
+(VPBLENDVB128 x y c:(VPMOVMToVec8x16 k)) => (VPBLENDMBMasked128 x y c.Args[0])
+
+// Conditions on values, including through v, are not modeled.
+(VPCMPEQD128 p q) && v.Args[0] == v.Args[1] => (VCMPPS128 [15] (Zero128 <types.TypeVec128>) (Zero128 <types.TypeVec128>))
+(VPBLENDVB128 x y mask) && v.Args[0] == v.Args[1] => x
+(VPBLENDVB128 x y mask) && len(v.Block.Values) == 1 && v.Block.Values[0].Args[0] == v.Block.Values[0].Args[1] => x

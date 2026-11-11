@@ -11,6 +11,7 @@ import (
 	"github.com/josharian/unruly/analysis"
 	"github.com/josharian/unruly/ops"
 	"github.com/josharian/unruly/rules"
+	"github.com/josharian/unruly/typecheck"
 )
 
 var Analyzer = &analysis.Analyzer{
@@ -46,6 +47,21 @@ element i by m[i/2]. The checks:
   - Coverage: a merging fusion requires OP to write every output element.
     A narrowing op such as VPMOVDB (Int32x4 to the low 4 bytes of an
     Int8x16) zeroes the rest even under merge masking.
+  - Mask semantics: a rule whose match is a modeled op (a select such as
+    a blend, VMOVDQU<E>Masked, or an AND with a vector mask; a compare;
+    or a mask conversion) must compute the same value in its result.
+    Both sides are evaluated lane by lane on sampled inputs, for values
+    of the rule's integer variables that its condition allows (all of
+    them if there are few, else a sample with each variable's small and
+    edge values). Other ops' values are unknown, as are Go expressions
+    in a result, such as v.Args[0], and a difference is reported only
+    where both sides are known (see lanes.go). Rules whose conditions
+    inspect values (as in x == y or v.Args[0] == v.Args[1]) are not
+    checked. A difference is explained, with the inputs that show it, as
+    a compare that differs in domain, element width, predicate, or
+    operand order; a K mask with the wrong lanes; a vector mask read at a
+    coarser granularity than its lanes; a select of the wrong value; or a
+    mask the result ignores.
   - Lowering shapes: a generic op's Go result width must equal the typ of
     the machine op it lowers to, and the VPMOVVec<E>x<N>ToM and
     VPMOVMToVec<E>x<N> mask conversions in lowerings must match the
@@ -149,6 +165,7 @@ func run(pass *analysis.Pass) error {
 				c.checkLowering(r)
 			} else {
 				c.checkFusion(r)
+				c.checkMaskSem(r)
 			}
 		}
 	}
@@ -158,6 +175,7 @@ func run(pass *analysis.Pass) error {
 type checker struct {
 	pass *analysis.Pass
 	api  map[string][]*goSig // by generic op name
+	tc   *typecheck.Result   // nil if the rules don't type-check
 
 	// sigs are the archsimd methods whose generic ops lower to each
 	// machine op (by name).
@@ -173,6 +191,9 @@ func newChecker(pass *analysis.Pass, set *rules.RuleSet) *checker {
 		api:   loadGoAPI(pass.Ops.Dir, set.Arch.Name),
 		sigs:  map[string][]*goSig{},
 		elems: map[string]map[int]bool{},
+	}
+	if res, err := typecheck.Check(set); err == nil {
+		c.tc = res
 	}
 	for _, r := range set.Rules {
 		if r.IsBlock() || r.Match.Op == nil || !r.Match.Op.IsGeneric() || r.Result == nil || r.Result.Op == nil || r.Result.Op.IsGeneric() {
