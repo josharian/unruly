@@ -35,3 +35,60 @@
 (VPBLENDMDMasked128 dst (VPADDD128 x y) mask) => (VPADDDMasked256Merging dst x y mask) // want `fused width: VPBLENDMDMasked128 operates on Vec128, but the fused VPADDDMasked256Merging produces Vec256, so the Vec128 value is computed by a 256-bit instruction`
 (VMOVDQU32Masked256 (VPADDD256 x y) mask) => (VPADDDMasked128 x y mask) // want `fused width: .* produces Vec128, so the upper 128 bits of the result are lost`
 (VPBLENDMDMasked256 dst (VPADDD256 x y) mask) => (VPADDDMasked256Merging dst x y mask)
+
+// Fused operands: the masked form takes the fallback, the op's
+// arguments in order, and the mask. Only a reordering of distinct
+// variables is reported.
+(VPBLENDMDMasked128 dst (VPADDD128 x y) mask) => (VPADDDMasked128Merging x dst y mask) // want `fused operands: the masked VPADDDMasked128Merging takes the fallback dst, then VPADDD128's arguments in order and then the mask, dst x y, but the result passes x dst y`
+(VMOVDQU32Masked128 (VPSUBD128 x y) mask) => (VPSUBDMasked128 y x mask) // want `fused operands: the masked VPSUBDMasked128 takes VPSUBD128's arguments in order and then the mask, x y, but the result passes y x`
+(VMOVDQU32Masked128 l:(VPSLLD128const [c] x) mask) => (VPSLLDMasked128const [c] x mask)
+
+// Fused masks: the fused op must mask as the wrapper does.
+(VPBLENDMDMasked128 dst (VPADDD128 x y) mask) => (VPADDDMasked128Merging dst x y (VPMOVVec32x4ToM <types.TypeMask> (VPMOVMToVec32x4 <types.TypeVec128> mask)))
+(VPBLENDMDMasked128 dst (VPADDD128 x y) mask) => (VPADDDMasked128Merging dst x y (VPMOVVec32x4ToM <types.TypeMask> (VPMOVMToVec64x2 <types.TypeVec128> mask))) // want `fused mask: VPBLENDMDMasked128 selects lane i by bit i of mask, but VPADDDMasked128Merging masks by \(VPMOVVec32x4ToM .*\), whose bit \d is \d when mask's is \d`
+
+// A commutative op's first two arguments may be swapped.
+(VPBLENDMDMasked128 dst (VPADDD128 x y) mask) => (VPADDDMasked128Merging dst y x mask)
+(VMOVDQU32Masked128 (VPADDD128 x y) mask) => (VPADDDMasked128 y x mask)
+(VPBLENDMDMasked128 dst (VPSLLD128const [c] x) mask) => (VPSLLDMasked128constMerging [c+0] dst x mask)
+
+// A result other than the op's masked form is not a fusion: here both
+// sides are mask ? z : 0.
+(VPBLENDMDMasked128 (Zero128) z:(VPADDD128 x y) mask) => (VPBLENDMDMasked128 z (Zero128 <types.TypeVec128>) (KNOTB mask))
+
+// Conditions on values are not modeled.
+(VPBLENDMDMasked128 dst (VPSUBD128 x y) mask) && x == y => (VPSUBDMasked128Merging dst y x mask)
+(VPBLENDMDMasked128 dst (VPADDD128 x y) (KANDB m n)) && m == n => (VPADDDMasked128Merging dst x y m)
+
+// Not checked: a different operation, a fallback dropped or invented,
+// a different auxint, an argument substituted, and a byte blend's mask
+// other than through its granularity. These rules are wrong but not
+// reported.
+(VMOVDQU32Masked128 (VPSLLD128const [c] x) mask) => (VPSLLDMasked128const [c+1] x mask)
+(VPBLENDMDMasked128 dst (VPADDD128 x y) (VPCMPD128 [4] p q)) => (VPADDDMasked128Merging dst p q (VPCMPD128 [4] p q))
+(VPBLENDMDMasked128 dst (VPADDD128 x y) mask) => (VPSUBDMasked128Merging dst x y mask)
+(VPBLENDMDMasked128 dst (VPADDD128 x y) mask) => (VPADDDMasked128 x y mask)
+(VMOVDQU32Masked128 (VPADDD128 x y) mask) => (VPADDDMasked128Merging x x y mask)
+(VPBLENDVB128 dst (VPADDB128 x y) mask) => (VPADDBMasked128Merging dst x y (VPMOVVec8x16ToM <types.TypeMask> (VPXOR128 <types.TypeVec128> mask mask)))
+
+// Arguments may differ and still compute the same: a Go expression, an
+// op, a substituted variable (x-x is y-y), or an auxint (shifts by 32
+// to 63 all give 0). And a reordering is not reported if the mask never
+// selects the op's value.
+(VPBLENDMDMasked128 dst a:(VPADDD128 x y) mask) => (VPADDDMasked128Merging dst a.Args[0] y mask)
+(VPBLENDMDMasked128 dst (VPADDD128 x y) mask) => (VPADDDMasked128Merging dst (VPAND128 <types.TypeVec128> x x) y mask)
+(VPBLENDMDMasked128 dst (VPADDD128 (VPADDD128 x y) z) mask) => (VPADDDMasked128Merging dst (VPADDD128 <types.TypeVec128> y x) z mask)
+(VPBLENDMDMasked128 dst (VPADDD128 x y) (VPCMPD128 [3] p q)) => (VPADDDMasked128Merging dst p q (VPCMPD128 [3] p q))
+(VPBLENDMDMasked128 y (VPSUBD128 x x) mask) => (VPSUBDMasked128Merging y y y mask)
+(VPBLENDMDMasked128 dst (VPSLLD128const [c] x) mask) && c >= 32 && c < 64 => (VPSLLDMasked128constMerging [c+32] dst x mask)
+(VPBLENDMDMasked128 dst (VPSUBD128 x y) (VPCMPD128 [3] p q)) => (VPSUBDMasked128Merging x dst y (VPCMPD128 [3] p q))
+(VPBLENDMDMasked128 dst (VPSUBD128 x y) (VPCMPD128 [4] p q)) => (VPSUBDMasked128Merging x dst y (VPCMPD128 [4] p q)) // want `fused operands: .* dst x y, but the result passes x dst y`
+
+// A condition that reaches values through v.Block inspects them: here
+// x == y.
+(VPBLENDMDMasked128 dst (VPSUBD128 x y) mask) && len(v.Block.Values) == 1 && v.Block.Values[0].Args[1].Args[0] == v.Block.Values[0].Args[1].Args[1] => (VPSUBDMasked128Merging dst y x mask)
+
+// A fused mask is reported as different only if the fallback is a
+// variable the op and masks don't use; max(dst, dst) is dst.
+(VPBLENDMDMasked128 dst (VPMAXSD128 dst dst) mask) => (VPMAXSDMasked128Merging dst dst dst (VPMOVVec32x4ToM <types.TypeMask> (VPMOVMToVec64x2 <types.TypeVec128> mask)))
+(VPBLENDMDMasked128 dst (VPADDD128 x y) (VPCMPD128 [3] p q)) => (VPADDDMasked128Merging dst x y (VPCMPD128 [7] p q)) // want `fused mask: .* masks by \(VPCMPD128 \[7\] p q\), whose bit \d is 1 when \(VPCMPD128 \[3\] p q\)'s is 0`

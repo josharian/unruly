@@ -4,7 +4,9 @@ package simdmaskshape
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -47,6 +49,23 @@ element i by m[i/2]. The checks:
   - Coverage: a merging fusion requires OP to write every output element.
     A narrowing op such as VPMOVDB (Int32x4 to the low 4 bytes of an
     Int8x16) zeroes the rest even under merge masking.
+  - Operands: the fused op must take the wrapper's fallback (if it
+    merges), OP's arguments in order (or with the first two swapped, if
+    OP is commutative), and then the mask, as the masked forms of ops
+    do; and a mask that is not the wrapper's own must select the same
+    lanes (it is evaluated as below). This is checked only if the fused
+    op has OP's asm and the masked form's signature, and the condition
+    doesn't inspect values. Only a reordering is reported: the expected
+    arguments must be distinct variables bound to match leaves, the
+    fused op must take another order of exactly those, and the wrapper's
+    mask must be able to select a lane. A repeated or substituted
+    variable, an op, a Go expression, or a different auxint may compute
+    the same value (x-x is y-y), so it is not reported. Masks are
+    compared only if the arguments are the expected ones, for a merging
+    wrapper whose fallback is a variable that nothing else uses. So a
+    fused op that computes something else, or that drops the fallback,
+    is not reported, nor is a VPBLENDVB fusion's mask other than through
+    its granularity.
   - Mask semantics: a rule whose match is a modeled op (a select such as
     a blend, VMOVDQU<E>Masked, or an AND with a vector mask; a compare;
     or a mask conversion) must compute the same value in its result.
@@ -326,6 +345,17 @@ func (c *checker) checkFusion(r *rules.Rule) {
 	eOut, known := c.outElem(inner.Op)
 	ex := c.example(inner.Op)
 	var probs []string
+	if !inspectsValues(r) {
+		p, same := c.fusedOperands(r, kind, inner, maskIdx, we, ww)
+		if p != "" {
+			probs = append(probs, p)
+		}
+		if same && kind == mergeWrapper {
+			if p := c.fusedMask(r, maskIdx, we, ww); p != "" {
+				probs = append(probs, p)
+			}
+		}
+	}
 
 	switch kind {
 	case zeroWrapper, mergeWrapper:
@@ -395,6 +425,141 @@ func (c *checker) checkFusion(r *rules.Rule) {
 	if len(probs) > 0 {
 		c.pass.Reportf(r.Pos, "%s", strings.Join(probs, "; "))
 	}
+}
+
+// fusedOperands checks that fused op r.Result takes the arguments of
+// the wrapped op inner in order (or with the first two swapped, if inner
+// is commutative), after the wrapper's fallback if it merges, and then
+// the mask, as the ops' masked forms do. It checks only a fused op with
+// inner's asm and that signature, and reports only a reordering: the
+// expected arguments must be distinct variables bound to match leaves,
+// the fused op's must be another order of exactly those, and the
+// wrapper's mask must be able to select a lane. Anything else, such as a
+// repeated or substituted variable, an op, or a Go expression, may
+// compute the same value (x-x is 0 whatever x is), so it is not checked;
+// nor are auxints. fusedOperands reports whether the fused op's
+// arguments are sure to be the expected ones.
+func (c *checker) fusedOperands(r *rules.Rule, kind wrapperKind, inner *rules.Value, maskIdx, we, ww int) (string, bool) {
+	fused := r.Result
+	var want []*rules.Value
+	if kind != zeroWrapper {
+		want = append(want, r.Match.Args[0])
+	}
+	want = append(want, inner.Args...)
+	if fused.Op.Asm != inner.Op.Asm || len(fused.Args) != len(want)+1 || maskArg(fused.Op) != len(want) {
+		return "", false
+	}
+	got := fused.Args[:len(want)]
+	swapped := slices.Clone(want)
+	if off := len(want) - len(inner.Args); inner.Commutes() {
+		swapped[off], swapped[off+1] = swapped[off+1], swapped[off]
+	}
+	if slices.EqualFunc(want, got, sameArg) || slices.EqualFunc(swapped, got, sameArg) {
+		return "", true
+	}
+	if !c.reordered(r, want, got) || !c.maskActive(r, r.Match.Args[maskIdx], kind == byteBlend, we, ww) {
+		return "", false
+	}
+	var wantText, gotText []string
+	for i, a := range want {
+		wantText = append(wantText, a.Text)
+		gotText = append(gotText, got[i].Text)
+	}
+	what := fmt.Sprintf("%s's arguments", inner.Op.Name)
+	if kind != zeroWrapper {
+		what = fmt.Sprintf("the fallback %s, then %s", r.Match.Args[0].Text, what)
+	}
+	return fmt.Sprintf("fused operands: the masked %s takes %s in order and then the mask, %s, but the result passes %s",
+		fused.Op.Name, what, strings.Join(wantText, " "), strings.Join(gotText, " ")), false
+}
+
+// sameArg reports whether result argument b names match value a, a
+// variable or a bound op.
+func sameArg(a, b *rules.Value) bool {
+	return b.IsVar() && a.Name != "" && a.Name != "_" && b.Name == a.Name
+}
+
+// reordered reports whether match values want are distinct variables
+// bound to leaves of r's match, and result arguments got are the same
+// variables in some order.
+func (c *checker) reordered(r *rules.Rule, want, got []*rules.Value) bool {
+	bound := c.newInterp(r).bound
+	names := map[string]bool{}
+	for _, a := range want {
+		if !a.IsVar() || bound[a.Name] != nil || names[a.Name] {
+			return false
+		}
+		names[a.Name] = true
+	}
+	for _, b := range got {
+		if !b.IsVar() || !names[b.Name] {
+			return false
+		}
+		delete(names, b.Name)
+	}
+	return true
+}
+
+// maskActive reports whether mask m, a vector if isVec, is known to
+// select one of a ww-bit wrapper's we-bit lanes for some input, so
+// that the wrapped op's value is used.
+func (c *checker) maskActive(r *rules.Rule, m *rules.Value, isVec bool, we, ww int) bool {
+	in := c.newInterp(r)
+	for ai, a := range c.assignments(r, in) {
+		for t := range 16 {
+			in.vals = a
+			in.newTrial(rand.New(rand.NewPCG(uint64(ai), uint64(t))), t)
+			x := in.eval(m, !isVec)
+			for i := range ww / we {
+				switch {
+				case isVec && x.known(we, i) && top(x.v.get(we, i), we):
+					return true
+				case !isVec && (x.k&^x.ku)>>i&1 != 0:
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// fusedMask checks that fused op r.Result, which takes a merging
+// wrapper's arguments, masks its we-bit lanes as the wrapper does. It
+// evaluates the two masks (see lanes.go) and reports a lane in which
+// they are known to differ, if the wrapper's fallback is a variable that
+// neither the wrapped op nor the masks use, so that the lane's value
+// differs for some fallback whatever the wrapped op computes.
+func (c *checker) fusedMask(r *rules.Rule, maskIdx, we, ww int) string {
+	m, fm := r.Match.Args[maskIdx], r.Result.Args[maskArg(r.Result.Op)]
+	dst := r.Match.Args[0]
+	if sameArg(m, fm) || !dst.IsVar() {
+		return ""
+	}
+	in := c.newInterp(r)
+	uses := 0
+	r.Match.Walk(func(v *rules.Value) bool {
+		if v.IsLeaf() && v.Name == dst.Name {
+			uses++
+		}
+		return true
+	})
+	if uses != 1 || in.bound[dst.Name] != nil || reachesAny(fm, []string{dst.Name}, in.bound) {
+		return ""
+	}
+	for ai, a := range c.assignments(r, in) {
+		for t := range 16 {
+			in.vals = a
+			in.newTrial(rand.New(rand.NewPCG(uint64(ai), uint64(t))), t)
+			want, got := in.eval(m, true), in.eval(fm, true)
+			for i := range ww / we {
+				if (want.k^got.k)&^(want.ku|got.ku)>>i&1 != 0 {
+					return fmt.Sprintf("fused mask: %s selects lane i by bit i of %s, but %s masks by %s, whose bit %d is %d when %s's is %d",
+						r.Match.Op.Name, m.Text, r.Result.Op.Name, fm.Text, i, got.k>>i&1, m.Text, want.k>>i&1)
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // findMaskConv returns the VPMOVVec<E>x<N>ToM op in res applied to the
