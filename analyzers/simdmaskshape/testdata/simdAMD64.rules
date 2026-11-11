@@ -30,3 +30,8 @@
 (VPBLENDVB128 dst (VPABSB128 x) mask) && v.Block.CPUfeatures.HasFeature(ssa.CPUavx512) => (VPABSBMasked128Merging dst x (VPMOVVec8x16ToM <types.TypeMask> mask))
 (VPBLENDVB128 dst (VPADDD128 x y) mask) && v.Block.CPUfeatures.HasFeature(ssa.CPUavx512) => (VPADDDMasked128Merging dst x y (VPMOVVec32x4ToM <types.TypeMask> mask)) // want `VPBLENDVB selects bytes, but VPMOVVec32x4ToM keeps only the top bit of each 32-bit lane .* ignores all but m\[3\] of each 4 bytes`
 (VPBLENDVB128 dst (VPMADDWD128 x y) mask) && v.Block.CPUfeatures.HasFeature(ssa.CPUavx512) => (VPMADDWDMasked128Merging dst x y (VPMOVVec16x8ToM <types.TypeMask> mask)) // want `with m a Mask32x4 selects element i by m\[0 0 1 1\] instead of m\[0 1 2 3\]`
+
+// Fused width: the fused op must have the wrapper's width.
+(VPBLENDMDMasked128 dst (VPADDD128 x y) mask) => (VPADDDMasked256Merging dst x y mask) // want `fused width: VPBLENDMDMasked128 operates on Vec128, but the fused VPADDDMasked256Merging produces Vec256, so the Vec128 value is computed by a 256-bit instruction`
+(VMOVDQU32Masked256 (VPADDD256 x y) mask) => (VPADDDMasked128 x y mask) // want `fused width: .* produces Vec128, so the upper 128 bits of the result are lost`
+(VPBLENDMDMasked256 dst (VPADDD256 x y) mask) => (VPADDDMasked256Merging dst x y mask)

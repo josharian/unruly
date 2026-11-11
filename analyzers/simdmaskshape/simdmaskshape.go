@@ -35,7 +35,9 @@ x.DotProductPairs(y).IfElse(m, z) with m a Mask32x4 selects result
 element i by m[i/2]. The checks:
 
   - Width: OP's result width must be the wrapper's, or the rule can never
-    match well-typed SSA.
+    match well-typed SSA, and so must the fused op's: simdAMD64.rules
+    passes the wrapper's mask straight to it, so nothing else ties the
+    fused op's size to the wrapper's.
   - Granularity: VMOVDQU<E>Masked and VPBLENDM<B|W|D|Q> select E-bit lanes,
     so E must be OP's output element width. VPBLENDVB selects bytes (archsimd's
     IfElse uses it for every 128- and 256-bit type, including after
@@ -283,6 +285,15 @@ func (c *checker) checkFusion(r *rules.Rule) {
 	if ww != iw {
 		c.pass.Reportf(r.Pos, "never matches: %s operates on Vec%d but %s produces Vec%d, so no well-typed value matches (and %s would be ill-typed)",
 			w.Name, ww, inner.Op.Name, iw, fused.Name)
+		return
+	}
+	if fw := vecBits(fused.Typ); fw != 0 && fw != ww {
+		consequence := fmt.Sprintf("the upper %d bits of the result are lost", ww-fw)
+		if fw > ww {
+			consequence = fmt.Sprintf("the Vec%d value is computed by a %d-bit instruction", ww, fw)
+		}
+		c.pass.Reportf(r.Pos, "fused width: %s operates on Vec%d, but the fused %s produces Vec%d, so %s",
+			w.Name, ww, fused.Name, fw, consequence)
 		return
 	}
 
