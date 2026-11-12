@@ -1,6 +1,15 @@
 // CMPUconst's immediate is zero-extended: CMPUconst [-1] compares against 0xffffffff.
 (CMPUconst (MOVDconst [x]) [y]) && uint64(x)==uint64(y) => (FlagEQ) // want `CMPUconst's auxint y is zero-extended \(S390X codegen emits int64\(uint32\(v.AuxInt\)\)\), but uint64\(y\) sign-extends it: y=-1 stands for 0xffffffff, not 0xffffffffffffffff; use uint64\(uint32\(y\)\)`
 (CMPUconst (MOVDconst [x]) [y]) && uint64(x)<uint64(uint32(y)) => (FlagLT)
+(CMPUconst (MOVDconst [x]) [y]) && uint64(x)<uint64(y) => (FlagLT) // want `but uint64\(y\) sign-extends it`
+
+// A negative y reads too large as uint64(y), and too small as int64(y). A
+// condition that the misread only makes harder to satisfy is fine: the rule
+// fires less often, but only where the right reading holds too.
+(CMPUconst (MOVDconst [x]) [y]) && uint64(x)>uint64(y) => (FlagGT)
+(CMPUconst (MOVDconst [x]) [y]) && !(uint64(y) >= uint64(x)) && x != 7 => (FlagGT)
+(CMPUconst (MOVDconst [x]) [y]) && (x == 8 || x < int64(y)) => (FlagLT)
+(CMPUconst (MOVDconst [x]) [y]) && x > int64(y) => (FlagGT) // want `but int64\(y\) sign-extends it`
 (CMPUconst x:(SRDconst _ [c]) [y]) && y < 100 => (FlagLT) // want `but y < 100 compares it as signed`
 
 // CMPconst's immediate is sign-extended; moving a non-negative one is fine.

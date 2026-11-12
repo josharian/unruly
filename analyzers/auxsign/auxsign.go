@@ -41,7 +41,10 @@ the instruction does. Three mistakes are reported:
     0x80000000, it gives 0xffffffff80000000, so x>>1 < 0x80000000 folds to
     true. The fix is uint64(uint32(n)). Conversions of the auxint to a
     wider type and signed comparisons of it are reported unless the
-    condition makes it non-negative.
+    condition makes it non-negative, or unless the misread only makes
+    the condition harder to satisfy: a negative n reads too large as
+    uint64(n), so uint64(x) > uint64(n) still implies x > the immediate,
+    and the rule fires less often but never wrongly.
 
   - Moving an immediate between ops that extend it differently, without
     a condition that makes the two agree. In
@@ -102,6 +105,10 @@ type checker struct {
 
 	imms map[types.Object]imm
 	f    *facts.Facts
+
+	// stricter holds the conversions in the condition whose misreading
+	// only makes the condition harder to satisfy.
+	stricter map[*ast.CallExpr]bool
 }
 
 // An imm is how an instruction uses an auxint.
@@ -164,7 +171,10 @@ func (c *checker) check() {
 		c.signedCompares(c.tr.Cond, true, uo)
 	}
 	if c.tr.Cond != nil {
+		c.stricter = map[*ast.CallExpr]bool{}
+		c.findStricter(c.tr.Cond, true)
 		c.reads(c.tr.Cond)
+		c.stricter = nil
 	}
 	c.eachResult(func(node any) {
 		for _, fld := range []typecheck.Field{typecheck.AuxInt, typecheck.Aux, typecheck.Type} {
@@ -253,7 +263,7 @@ func (c *checker) reads(e ast.Expr) {
 			if !ok || width(to) <= m.zext {
 				return true
 			}
-			if c.nonneg(id, m) {
+			if c.nonneg(id, m) || c.stricter[x] {
 				return true
 			}
 			ex := c.negExample(id)
@@ -275,6 +285,51 @@ func (c *checker) reads(e ast.Expr) {
 		}
 		return true
 	})
+}
+
+// findStricter records in c.stricter the conversions of a zero-extended
+// immediate in e, a boolean expression assumed to have value truth, whose
+// sign extension only makes e harder to satisfy. A negative immediate
+// converted to a wider unsigned type reads too large, so it may be the
+// upper side of a comparison (x > uint64(n)); converted to a wider signed
+// type it reads too small (negative), so it may be the lower side
+// (x < int64(n)). If the misread condition holds, then so does the right
+// one.
+func (c *checker) findStricter(e ast.Expr, truth bool) {
+	switch x := ast.Unparen(e).(type) {
+	case *ast.UnaryExpr:
+		if x.Op == token.NOT {
+			c.findStricter(x.X, !truth)
+		}
+	case *ast.BinaryExpr:
+		// big is the side that is harder to satisfy the larger it is.
+		var big, small ast.Expr
+		switch x.Op {
+		case token.LAND, token.LOR:
+			c.findStricter(x.X, truth)
+			c.findStricter(x.Y, truth)
+			return
+		case token.LSS, token.LEQ:
+			big, small = x.X, x.Y
+		case token.GTR, token.GEQ:
+			big, small = x.Y, x.X
+		default:
+			return
+		}
+		if !truth {
+			big, small = small, big
+		}
+		if call, ok := ast.Unparen(big).(*ast.CallExpr); ok {
+			if to, ok := c.convType(call); ok && unsigned(to) {
+				c.stricter[call] = true
+			}
+		}
+		if call, ok := ast.Unparen(small).(*ast.CallExpr); ok {
+			if to, ok := c.convType(call); ok && !unsigned(to) {
+				c.stricter[call] = true
+			}
+		}
+	}
 }
 
 // zeroExtVar returns the first of es that is a match variable holding a
